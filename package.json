@@ -1,0 +1,26 @@
+{
+  "name": "juegojuego",
+  "version": "1.0.0",
+  "description": "",
+  "main": "test-bot.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yordisc/JuegoJuego.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/yordisc/JuegoJuego/issues"
+  },
+  "homepage": "https://github.com/yordisc/JuegoJuego#readme",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.4",
+    "dotenv": "^17.3.1",
+    "node-fetch": "^3.3.2"
+  }
+}

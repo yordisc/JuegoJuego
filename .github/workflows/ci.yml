@@ -1,0 +1,36 @@
+# .github/workflows/ci.yml
+
+name: Pipeline de Pruebas - JuegosJuegos
+
+# 1. ¿Cuándo se ejecuta esto? (El Trigger)
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+# 2. ¿Qué tareas va a realizar? (Los Jobs)
+jobs:
+  test:
+    # Usamos un servidor Linux virtual gratuito de GitHub
+    runs-on: ubuntu-latest
+
+    steps:
+    # Paso A: Traer el código de tu repositorio al servidor virtual
+    - name: 📥 Clonar el repositorio
+      uses: actions/checkout@v4
+
+    # Paso B: Instalar Node.js en el servidor virtual
+    - name: ⚙️ Configurar Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20' # Usamos una versión reciente que soporta fetch nativo
+
+    # Paso C: Instalar las dependencias (el @netlify/blobs)
+    - name: 📦 Instalar dependencias
+      # Usamos 'npm ci' en lugar de 'npm install' porque es más rápido y estricto para entornos en la nube
+      run: npm ci
+
+    # Paso D: El momento de la verdad
+    - name: 🧪 Ejecutar Tests Unitarios
+      run: npm test

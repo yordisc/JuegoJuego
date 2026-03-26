@@ -1,0 +1,8 @@
+[functions]
+  # Carpeta donde Netlify buscará tus scripts
+  directory = "netlify/functions"
+
+# Configuración del Cron Job para tu bot
+[functions.check-deals]
+  # Se ejecutará automáticamente cada hora
+  schedule = "@hourly"
