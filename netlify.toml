@@ -2,7 +2,12 @@
   # Carpeta donde Netlify buscará tus scripts
   directory = "netlify/functions"
 
-# Configuración del Cron Job para tu bot
-[functions.check-deals]
-  # Se ejecutará automáticamente cada hora
-  schedule = "@hourly"
+# Microservicio 1: Reddit (Android)
+[functions.check-android]
+  # Ejecutar cada 20 minutos
+  schedule = "*/20 * * * *"
+
+# Microservicio 2: GamerPower (PC)
+[functions.check-pc]
+  # Ejecutar a las 10:00 AM y a las 10:00 PM todos los días
+  schedule = "0 10,22 * * *"
