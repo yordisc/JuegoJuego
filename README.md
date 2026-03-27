@@ -5,7 +5,6 @@
 [![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=flat-square&logo=github-actions)](https://github.com/features/actions)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-2CA5E0?style=flat-square&logo=telegram)](https://t.me/JuegosJuegosGratis)
 
-> **Demo en Vivo:** Únete al canal de Telegram automatizado 👉 [**@JuegosJuegosGratis**](https://t.me/JuegosJuegosGratis)
 
 ## 📖 Resumen del Proyecto
 JuegosJuegos es un sistema backend automatizado basado en microservicios que rastrea aplicaciones móviles y juegos de PC temporalmente gratuitos. Actúa como un motor de búsqueda asíncrono que extrae, filtra y publica ofertas en un canal de Telegram en tiempo real.
