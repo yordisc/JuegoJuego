@@ -29,8 +29,11 @@ jobs:
     # Paso C: Instalar las dependencias (el @netlify/blobs)
     - name: 📦 Instalar dependencias
       # Usamos 'npm ci' en lugar de 'npm install' porque es más rápido y estricto para entornos en la nube
-      run: npm ci
+      run: npm install
 
     # Paso D: El momento de la verdad
     - name: 🧪 Ejecutar Tests Unitarios
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.JUEGOSJUEGOS_TOKEN }}
+        CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
       run: npm test

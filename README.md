@@ -42,10 +42,5 @@ El proyecto cuenta con una arquitectura de software limpia y modularizada, dise�
 
 ---
 
-### 🔐 Notas de Configuración (Para Desarrollo Local)
-Para ejecutar este proyecto en local, se requiere un archivo `.env` en la raíz (ignorado en Git por seguridad) con las siguientes variables:
-* `TELEGRAM_TOKEN`: (8789099458:AAFOCi9uoGfENDrpu3sqAVx_pMR8qKvS3Pw)
-* `CHANNEL_ID`: @JuegosJuegosGratis
-
-## Enlace del bot
-https://t.me/gratisjuego_bot
+## Enlace del Canal
+https://t.me/JuegosJuegosGratis
