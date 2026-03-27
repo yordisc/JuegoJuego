@@ -1,17 +1,7 @@
+// netlify/functions/check-android.js
+
 if (process.env.NODE_ENV !== "production") require("dotenv").config();
-
-// Preparamos las opciones base
-const blobOptions = { name: "memory-store" };
-
-// Si tenemos credenciales explicitas configuradas, las inyectamos
-if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
-  blobOptions.siteID = process.env.NETLIFY_SITE_ID;
-  blobOptions.token = process.env.NETLIFY_API_TOKEN;
-}
-
-// Inicializamos la base de datos
-const store = getStore(blobOptions);
-
+const { getStore } = require("@netlify/blobs");
 const {
   getPublishedGamesList,
   savePublishedGamesList,
@@ -21,9 +11,19 @@ const { checkAndroidDeals } = require("../../services/android-deals");
 exports.handler = async (event, context) => {
   try {
     console.log("📱 Iniciando búsqueda programada de Android (Cada 20 min)...");
-    const store = getStore("memory-store");
-    const publishedGames = await getPublishedGamesList(store);
 
+    // 1. Configuración dinámica de Blobs (Dentro del handler)
+    const blobOptions = { name: "memory-store" };
+    if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
+      blobOptions.siteID = process.env.NETLIFY_SITE_ID;
+      blobOptions.token = process.env.NETLIFY_API_TOKEN;
+    }
+
+    // 2. Inicializamos la base de datos de forma segura
+    const store = getStore(blobOptions);
+
+    // 3. Ejecutamos la lógica de negocio
+    const publishedGames = await getPublishedGamesList(store);
     await checkAndroidDeals(publishedGames);
     await savePublishedGamesList(store, publishedGames);
 
