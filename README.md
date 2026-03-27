@@ -7,7 +7,7 @@
 
 
 ## 📖 Resumen del Proyecto
-JuegosJuegos es un sistema backend automatizado basado en microservicios que rastrea aplicaciones móviles y juegos de PC temporalmente gratuitos. Actúa como un motor de búsqueda asíncrono que extrae, filtra y publica ofertas en un canal de Telegram en tiempo real.
+Juego es un sistema backend automatizado basado en microservicios que rastrea aplicaciones móviles y juegos de PC temporalmente gratuitos. Actúa como un motor de búsqueda asíncrono que extrae, filtra y publica ofertas en un canal de Telegram en tiempo real.
 
 Construido con una arquitectura **100% Serverless** y enfocado en la eficiencia, el sistema opera de manera autónoma 24/7 con un **costo de infraestructura de $0**, diseñado para consumir el mínimo absoluto de memoria y red.
 
