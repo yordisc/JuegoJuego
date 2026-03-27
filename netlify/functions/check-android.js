@@ -19,10 +19,30 @@ exports.handler = async (event, context) => {
     const siteId = process.env.NETLIFY_SITE_ID;
     const apiToken = process.env.NETLIFY_API_TOKEN;
 
-    console.log(`   - NETLIFY_SITE_ID: ${siteId ? "✅ Presente (" + siteId.substring(0, 5) + "...)" : "❌ NO DEFINIDO"}`);
-    console.log(`   - NETLIFY_API_TOKEN: ${apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"}`);
-    console.log(`   - TELEGRAM_TOKEN: ${process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"}`);
-    console.log(`   - CHANNEL_ID: ${process.env.CHANNEL_ID ? "✅ Presente (" + process.env.CHANNEL_ID + ")" : "❌ NO DEFINIDO"}`);
+    console.log(
+      `   - NETLIFY_SITE_ID: ${
+        siteId
+          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+          : "❌ NO DEFINIDO"
+      }`
+    );
+    console.log(
+      `   - NETLIFY_API_TOKEN: ${
+        apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+      }`
+    );
+    console.log(
+      `   - TELEGRAM_TOKEN: ${
+        process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+      }`
+    );
+    console.log(
+      `   - CHANNEL_ID: ${
+        process.env.CHANNEL_ID
+          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+          : "❌ NO DEFINIDO"
+      }`
+    );
 
     const blobOptions = { name: "memory-store" };
     if (siteId && apiToken) {
@@ -37,7 +57,9 @@ exports.handler = async (event, context) => {
     console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log("📡 [DEBUG 3/4] Consultando Reddit y buscando ofertas de Android...");
+    console.log(
+      "📡 [DEBUG 3/4] Consultando Reddit y buscando ofertas de Android..."
+    );
     await checkAndroidDeals(publishedGames);
     console.log("   - Búsqueda finalizada.");
 

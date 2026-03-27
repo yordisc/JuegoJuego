@@ -1,116 +1,98 @@
 // services/android-deals.js
 
-const SUBREDDIT = 'androidgaming';
-const RSS_URL = `https://www.reddit.com/r/${SUBREDDIT}/new/.rss`;
-const JSON_URL = `https://www.reddit.com/r/${SUBREDDIT}/new.json?limit=25`;
+const gplay = require("google-play-scraper");
 
-// Palabras clave para el título
-const TITLE_KEYWORDS = ['free', 'gratis', 'deal', 'sale', 'discount', 'humble', 'bundle', '100%', 'off'];
+// Palabras clave para filtrar por título
+const TITLE_KEYWORDS = [
+  "free",
+  "gratis",
+  "deal",
+  "sale",
+  "discount",
+  "humble",
+  "bundle",
+  "100%",
+  "off",
+  "limited",
+];
 
-// Palabras clave para el flair/bandera del post
-const FLAIR_KEYWORDS = ['popular', 'free', 'deal', 'sale'];
+// Términos de búsqueda en Google Play
+const SEARCH_TERMS = [
+  "free games limited time",
+  "juegos gratis android",
+  "android game sale",
+  "paid game free",
+];
 
-function matchesTitleOrFlair(post) {
-  const title = (post.title || '').toLowerCase();
-  const flair = (post.link_flair_text || post.flair || '').toLowerCase();
-
-  const titleMatch = TITLE_KEYWORDS.some(kw => title.includes(kw));
-  const flairMatch = FLAIR_KEYWORDS.some(kw => flair.includes(kw));
-
-  return titleMatch || flairMatch;
+function matchesTitle(title) {
+  const lower = (title || "").toLowerCase();
+  return TITLE_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-async function fetchFromRedditJSON() {
-  const response = await fetch(JSON_URL, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Cache-Control': 'no-cache',
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Reddit bloqueó la petición temporalmente. Código HTTP: ${response.status}`);
-  }
-
-  const data = await response.json();
-  // Preservamos link_flair_text que viene directo del JSON de Reddit
-  return data.data.children.map(post => post.data);
-}
-
-async function fetchFromRedditRSS() {
-  console.log('[FALLBACK] Usando RSS de Reddit...');
-  const response = await fetch(RSS_URL, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; GratisJuegoBot/1.0)',
-      'Accept': 'application/rss+xml, application/xml, text/xml',
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`RSS también falló. Código HTTP: ${response.status}`);
-  }
-
-  const text = await response.text();
-  const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
-
-  while ((match = itemRegex.exec(text)) !== null) {
-    const item = match[1];
-    const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/))?.[1] || '';
-    const link = (item.match(/<link>(.*?)<\/link>/) || [])[1] || '';
-    const pubDate = (item.match(/<pubDate>(.*?)<\/pubDate>/) || [])[1] || '';
-
-    // El RSS de Reddit incluye el flair dentro del contenido HTML del <description>
-    const description = (item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) || [])[1] || '';
-    const flairMatch = description.match(/\[([^\]]+)\]/); // e.g. [Popular] o [Deal]
-    const flair = flairMatch ? flairMatch[1] : '';
-
-    items.push({
-      title,
-      url: link,
-      created_utc: new Date(pubDate).getTime() / 1000,
-      link_flair_text: flair,
-    });
-  }
-
-  return items;
+// Espera entre peticiones para no ser bloqueado
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function checkAndroidDeals() {
-  let posts = [];
-  let source = 'json';
+  console.log("[google-play-scraper] 🔍 Iniciando búsqueda de ofertas...");
 
-  try {
-    // Opción 2: JSON con headers de navegador
-    posts = await fetchFromRedditJSON();
-    console.log(`[JSON] ✅ Obtenidos ${posts.length} posts de Reddit`);
-  } catch (err) {
-    console.warn(`[JSON] ⚠️ Falló: ${err.message}`);
+  const allResults = [];
+  const seenAppIds = new Set();
+
+  for (const term of SEARCH_TERMS) {
     try {
-      // Opción 3: RSS como fallback
-      posts = await fetchFromRedditRSS();
-      source = 'rss';
-      console.log(`[RSS] ✅ Obtenidos ${posts.length} posts via RSS`);
-    } catch (rssErr) {
-      throw new Error(`Ambos métodos fallaron. JSON: ${err.message} | RSS: ${rssErr.message}`);
+      console.log(`[google-play-scraper] 🔎 Buscando: "${term}"`);
+
+      const results = await gplay.search({
+        term,
+        num: 30,
+        lang: "es",
+        country: "us",
+        throttle: 10, // max 10 peticiones por segundo
+      });
+
+      for (const app of results) {
+        // Evitar duplicados
+        if (seenAppIds.has(app.appId)) continue;
+        seenAppIds.add(app.appId);
+
+        // Solo incluir apps gratuitas o que el título sugiera oferta
+        if (app.free || matchesTitle(app.title)) {
+          allResults.push({
+            title: app.title,
+            appId: app.appId,
+            url: app.url,
+            icon: app.icon,
+            developer: app.developer,
+            score: app.score,
+            free: app.free,
+            priceText: app.priceText || "Free",
+            genre: app.genre,
+            summary: app.summary,
+          });
+        }
+      }
+
+      // Pausa entre búsquedas para evitar bloqueos
+      await sleep(1500);
+    } catch (err) {
+      console.warn(
+        `[google-play-scraper] ⚠️ Falló búsqueda "${term}": ${err.message}`
+      );
     }
   }
 
-  // Filtrar por título O por flair/bandera
-  const filtered = posts.filter(matchesTitleOrFlair);
+  console.log(
+    `[google-play-scraper] ✅ Total ofertas encontradas: ${allResults.length}`
+  );
 
-  console.log(`[${source.toUpperCase()}] 🎯 Posts relevantes encontrados: ${filtered.length}`);
-
-  // Log de flairs detectados para debug
-  filtered.forEach(p => {
-    const flair = p.link_flair_text ? ` [Flair: ${p.link_flair_text}]` : '';
-    console.log(`  → ${p.title}${flair}`);
+  // Log de resultados para debug
+  allResults.forEach((app) => {
+    console.log(`  → [${app.priceText}] ${app.title} (${app.appId})`);
   });
 
-  return filtered;
+  return allResults;
 }
 
 module.exports = { checkAndroidDeals };
