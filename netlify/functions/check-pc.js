@@ -1,5 +1,17 @@
 if (process.env.NODE_ENV !== "production") require("dotenv").config();
-const { getStore } = require("@netlify/blobs");
+
+// Preparamos las opciones base
+const blobOptions = { name: "memory-store" };
+
+// Si tenemos credenciales explicitas configuradas, las inyectamos
+if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
+  blobOptions.siteID = process.env.NETLIFY_SITE_ID;
+  blobOptions.token = process.env.NETLIFY_API_TOKEN;
+}
+
+// Inicializamos la base de datos
+const store = getStore(blobOptions);
+
 const {
   getPublishedGamesList,
   savePublishedGamesList,

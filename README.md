@@ -1,7 +1,7 @@
 # 🤖 JuegosJuegos Bot | Serverless Deal Aggregator
 
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-green?style=flat-square&logo=node.js)](https://nodejs.org/)
-[![Netlify](https://img.shields.io/badge/Netlify-Serverless-00C7B7?style=flat-square&logo=netlify)](https://www.netlify.com/)
+[![Netlify Status](https://api.netlify.com/api/v1/badges/73ae4611-e40d-4cf1-bb2f-cab3fa825286/deploy-status)](https://app.netlify.com/projects/gratisjuego-bot/deploys)
 [![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=flat-square&logo=github-actions)](https://github.com/features/actions)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-2CA5E0?style=flat-square&logo=telegram)](https://t.me/JuegosJuegosGratis)
 
