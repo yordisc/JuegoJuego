@@ -9,27 +9,71 @@ const {
 const { checkAndroidDeals } = require("../../services/android-deals");
 
 exports.handler = async (event, context) => {
-  try {
-    console.log("📱 Iniciando búsqueda programada de Android (Cada 20 min)...");
+  console.log("========================================");
+  console.log("🚀 INICIANDO CHECK-ANDROID (DEBUG MODE)");
+  console.log("========================================");
 
-    // 1. Configuración dinámica de Blobs (Dentro del handler)
+  try {
+    // --- PASO 1: VERIFICACIÓN DE ENTORNO ---
+    console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    const siteId = process.env.NETLIFY_SITE_ID;
+    const apiToken = process.env.NETLIFY_API_TOKEN;
+
+    console.log(
+      `   - NETLIFY_SITE_ID: ${
+        siteId
+          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+          : "❌ NO DEFINIDO"
+      }`
+    );
+    console.log(
+      `   - NETLIFY_API_TOKEN: ${
+        apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+      }`
+    );
+    console.log(
+      `   - TELEGRAM_TOKEN: ${
+        process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+      }`
+    );
+    console.log(
+      `   - CHANNEL_ID: ${
+        process.env.CHANNEL_ID
+          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+          : "❌ NO DEFINIDO"
+      }`
+    );
+
     const blobOptions = { name: "memory-store" };
-    if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
-      blobOptions.siteID = process.env.NETLIFY_SITE_ID;
-      blobOptions.token = process.env.NETLIFY_API_TOKEN;
+    if (siteId && apiToken) {
+      blobOptions.siteID = siteId;
+      blobOptions.token = apiToken;
     }
 
-    // 2. Inicializamos la base de datos de forma segura
+    // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
+    console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
     const store = getStore(blobOptions);
-
-    // 3. Ejecutamos la lógica de negocio
     const publishedGames = await getPublishedGamesList(store);
-    await checkAndroidDeals(publishedGames);
-    await savePublishedGamesList(store, publishedGames);
+    console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
-    return { statusCode: 200, body: "Búsqueda Android completada." };
+    // --- PASO 3: LÓGICA DE NEGOCIO ---
+    console.log(
+      "📡 [DEBUG 3/4] Consultando Reddit y buscando ofertas de Android..."
+    );
+    await checkAndroidDeals(publishedGames);
+    console.log("   - Búsqueda finalizada.");
+
+    // --- PASO 4: GUARDADO DE ESTADO ---
+    console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
+    await savePublishedGamesList(store, publishedGames);
+    console.log("   - Memoria actualizada exitosamente.");
+
+    console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
+    console.log("========================================");
+    return { statusCode: 200, body: "Búsqueda Android completada con éxito." };
   } catch (error) {
-    console.error("Error crítico en Android:", error);
+    console.error("❌ ERROR CRÍTICO EN ANDROID:");
+    console.error(error);
     return { statusCode: 500, body: error.toString() };
   }
 };
