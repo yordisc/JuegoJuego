@@ -1,41 +1,31 @@
 // services/android-deals.js
 
-const gplay = require("google-play-scraper");
-
-// Palabras clave para filtrar por título
 const TITLE_KEYWORDS = [
-  "free",
-  "gratis",
-  "deal",
-  "sale",
-  "discount",
-  "humble",
-  "bundle",
-  "100%",
-  "off",
-  "limited",
+  'free', 'gratis', 'deal', 'sale', 'discount',
+  'humble', 'bundle', '100%', 'off', 'limited'
 ];
 
-// Términos de búsqueda en Google Play
 const SEARCH_TERMS = [
-  "free games limited time",
-  "juegos gratis android",
-  "android game sale",
-  "paid game free",
+  'free games limited time',
+  'juegos gratis android',
+  'android game sale',
+  'paid game free',
 ];
 
 function matchesTitle(title) {
-  const lower = (title || "").toLowerCase();
-  return TITLE_KEYWORDS.some((kw) => lower.includes(kw));
+  const lower = (title || '').toLowerCase();
+  return TITLE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-// Espera entre peticiones para no ser bloqueado
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function checkAndroidDeals() {
-  console.log("[google-play-scraper] 🔍 Iniciando búsqueda de ofertas...");
+  // Import dinámico para compatibilidad con ES Module
+  const gplay = (await import('google-play-scraper')).default;
+
+  console.log('[google-play-scraper] 🔍 Iniciando búsqueda de ofertas...');
 
   const allResults = [];
   const seenAppIds = new Set();
@@ -47,17 +37,15 @@ async function checkAndroidDeals() {
       const results = await gplay.search({
         term,
         num: 30,
-        lang: "es",
-        country: "us",
-        throttle: 10, // max 10 peticiones por segundo
+        lang: 'es',
+        country: 'us',
+        throttle: 10,
       });
 
       for (const app of results) {
-        // Evitar duplicados
         if (seenAppIds.has(app.appId)) continue;
         seenAppIds.add(app.appId);
 
-        // Solo incluir apps gratuitas o que el título sugiera oferta
         if (app.free || matchesTitle(app.title)) {
           allResults.push({
             title: app.title,
@@ -67,28 +55,23 @@ async function checkAndroidDeals() {
             developer: app.developer,
             score: app.score,
             free: app.free,
-            priceText: app.priceText || "Free",
+            priceText: app.priceText || 'Free',
             genre: app.genre,
             summary: app.summary,
           });
         }
       }
 
-      // Pausa entre búsquedas para evitar bloqueos
       await sleep(1500);
+
     } catch (err) {
-      console.warn(
-        `[google-play-scraper] ⚠️ Falló búsqueda "${term}": ${err.message}`
-      );
+      console.warn(`[google-play-scraper] ⚠️ Falló búsqueda "${term}": ${err.message}`);
     }
   }
 
-  console.log(
-    `[google-play-scraper] ✅ Total ofertas encontradas: ${allResults.length}`
-  );
+  console.log(`[google-play-scraper] ✅ Total ofertas encontradas: ${allResults.length}`);
 
-  // Log de resultados para debug
-  allResults.forEach((app) => {
+  allResults.forEach(app => {
     console.log(`  → [${app.priceText}] ${app.title} (${app.appId})`);
   });
 
