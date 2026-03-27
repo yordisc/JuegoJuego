@@ -34,6 +34,6 @@ jobs:
     # Paso D: El momento de la verdad
     - name: 🧪 Ejecutar Tests Unitarios
       env:
-        TELEGRAM_TOKEN: ${{ secrets.JUEGOSJUEGOS_TOKEN }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
       run: npm test
