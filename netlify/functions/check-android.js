@@ -1,95 +1,57 @@
-// Archivo: services/android-deals.js
+// netlify/functions/check-android.js
 
-async function checkAndroidDeals(publishedGames) {
-    console.log("   [DEBUG] 🌐 Iniciando petición a Reddit con camuflaje...");
+if (process.env.NODE_ENV !== "production") require("dotenv").config();
+const { getStore } = require("@netlify/blobs");
+const {
+  getPublishedGamesList,
+  savePublishedGamesList,
+} = require("../../utils/memory");
+const { checkAndroidDeals } = require("../../services/android-deals");
 
-    // 1. EL CAMUFLAJE (Headers)
-    const requestOptions = {
-        method: 'GET',
-        headers: {
-            'User-Agent': 'Bot:JuegosJuegosScanner:v1.0.0 (by /u/DevAutomatizacion)'
-        }
-    };
+exports.handler = async (event, context) => {
+  console.log("========================================");
+  console.log("🚀 INICIANDO CHECK-ANDROID (DEBUG MODE)");
+  console.log("========================================");
 
-    // 2. PETICIÓN A REDDIT
-    const response = await fetch('https://www.reddit.com/r/googleplaydeals/new.json?limit=15', requestOptions);
+  try {
+    // --- PASO 1: VERIFICACIÓN DE ENTORNO ---
+    console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    const siteId = process.env.NETLIFY_SITE_ID;
+    const apiToken = process.env.NETLIFY_API_TOKEN;
 
-    if (!response.ok) {
-        throw new Error(`Reddit bloqueó la petición temporalmente. Código HTTP: ${response.status}`);
+    console.log(`   - NETLIFY_SITE_ID: ${siteId ? "✅ Presente (" + siteId.substring(0, 5) + "...)" : "❌ NO DEFINIDO"}`);
+    console.log(`   - NETLIFY_API_TOKEN: ${apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"}`);
+    console.log(`   - TELEGRAM_TOKEN: ${process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"}`);
+    console.log(`   - CHANNEL_ID: ${process.env.CHANNEL_ID ? "✅ Presente (" + process.env.CHANNEL_ID + ")" : "❌ NO DEFINIDO"}`);
+
+    const blobOptions = { name: "memory-store" };
+    if (siteId && apiToken) {
+      blobOptions.siteID = siteId;
+      blobOptions.token = apiToken;
     }
 
-    console.log("   [DEBUG] 📥 JSON recibido correctamente. Procesando ofertas...");
-    const data = await response.json();
-    const posts = data.data.children;
+    // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
+    console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    const store = getStore(blobOptions);
+    const publishedGames = await getPublishedGamesList(store);
+    console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
-    let nuevasOfertas = 0;
+    // --- PASO 3: LÓGICA DE NEGOCIO ---
+    console.log("📡 [DEBUG 3/4] Consultando Reddit y buscando ofertas de Android...");
+    await checkAndroidDeals(publishedGames);
+    console.log("   - Búsqueda finalizada.");
 
-    // 3. PROCESAMIENTO Y FILTRADO
-    for (const post of posts) {
-        const deal = post.data;
-        const dealId = deal.id;
-        
-        // Protecciones básicas contra posts vacíos
-        if (!deal) continue;
+    // --- PASO 4: GUARDADO DE ESTADO ---
+    console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
+    await savePublishedGamesList(store, publishedGames);
+    console.log("   - Memoria actualizada exitosamente.");
 
-        const titulo = deal.title || "";
-        const flair = deal.link_flair_text || "";
-
-        // Si ya lo publicamos antes, lo saltamos en silencio
-        if (publishedGames.includes(dealId)) {
-            continue;
-        }
-
-        console.log(`   [DEBUG] 🔎 Evaluando post: "${titulo.substring(0, 50)}..."`);
-
-        // Filtros: Buscamos "100% off", "free", o la etiqueta "popular" (revisando título y flair)
-        const tituloLower = titulo.toLowerCase();
-        const flairLower = flair.toLowerCase();
-        
-        const esGratis = tituloLower.includes('100% off') || tituloLower.includes('free');
-        const esPopular = tituloLower.includes('popular') || flairLower.includes('popular');
-
-        if (esGratis || esPopular) {
-            console.log(`   [DEBUG] 🎯 ¡Match encontrado! (Gratis: ${esGratis}, Popular: ${esPopular})`);
-
-            // Construimos el mensaje
-            const etiqueta = esPopular && !esGratis ? "🌟 POPULAR" : "🔥 GRATIS";
-            const mensaje = `📱 **NUEVA OFERTA ANDROID** 📱\n\n` +
-                            `${etiqueta}: ${titulo}\n\n` +
-                            `👉 [Ver en Google Play](${deal.url})`;
-
-            // 4. ENVÍO A TELEGRAM
-            try {
-                const telegramResponse = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: process.env.CHANNEL_ID,
-                        text: mensaje,
-                        parse_mode: 'Markdown',
-                        disable_web_page_preview: false
-                    })
-                });
-
-                if (telegramResponse.ok) {
-                    console.log(`   [DEBUG] ✅ Publicado con éxito en Telegram (ID: ${dealId})`);
-                    publishedGames.push(dealId);
-                    nuevasOfertas++;
-                } else {
-                    console.error(`   [DEBUG] ❌ Error de Telegram:`, await telegramResponse.text());
-                }
-            } catch (err) {
-                console.error(`   [DEBUG] ❌ Error de red al enviar a Telegram:`, err.message);
-            }
-        }
-    }
-
-    // 5. RESUMEN FINAL
-    if (nuevasOfertas === 0) {
-        console.log("   [DEBUG] 💤 No se encontraron ofertas nuevas en este ciclo.");
-    } else {
-        console.log(`   [DEBUG] 🎉 Ciclo terminado: Se publicaron ${nuevasOfertas} ofertas en Telegram.`);
-    }
-}
-
-module.exports = { checkAndroidDeals };
+    console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
+    console.log("========================================");
+    return { statusCode: 200, body: "Búsqueda Android completada con éxito." };
+  } catch (error) {
+    console.error("❌ ERROR CRÍTICO EN ANDROID:");
+    console.error(error);
+    return { statusCode: 500, body: error.toString() };
+  }
+};
