@@ -1,17 +1,23 @@
 // services/android-deals.js
 
 const TITLE_KEYWORDS = [
-  "free",
-  "gratis",
-  "deal",
-  "sale",
-  "discount",
-  "humble",
-  "bundle",
-  "100%",
-  "off",
-  "limited",
+  "deal", "sale", "discount", "humble", "bundle", "100%", "off", "limited", 
+  "pro", "premium", "vip" // Los juegos de pago que se vuelven gratis suelen tener estas etiquetas
 ];
+
+// Añade una lista negra para evitar Falsos Positivos gigantes
+const BLACKLIST = ["free fire", "roblox", "pubg", "candy crush", "clash"];
+
+function matchesTitle(title) {
+  const lower = (title || "").toLowerCase();
+  
+  // Si el juego está en la lista negra, lo ignoramos de inmediato
+  if (BLACKLIST.some(black => lower.includes(black))) {
+      return false;
+  }
+
+  return TITLE_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 const SEARCH_TERMS = [
   "free games limited time",
