@@ -103,7 +103,7 @@ async function checkAndroidDeals(publishedGames = []) {
       `  → 🚀 Preparando para Telegram: [${app.priceText}] ${app.title}`
     );
 
-// Construimos un mensaje atractivo
+// Construimos el texto (ahora será el "pie de foto" o caption)
     const mensaje =
       `📱 **NEW ANDROID DEAL** 📱\n\n` +
       `🎮 *${app.title}*\n` +
@@ -116,25 +116,25 @@ async function checkAndroidDeals(publishedGames = []) {
       `👉 [Get it on Google Play](https://play.google.com/store/apps/details?id=${app.appId})`;
 
     try {
+      // 🚨 Usamos /sendPhoto en lugar de /sendMessage
       const telegramResponse = await fetch(
-        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendPhoto`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: process.env.CHANNEL_ID,
-            text: mensaje,
-            parse_mode: "Markdown",
-            disable_web_page_preview: false,
+            photo: app.icon,       // Aquí le pasamos la URL de la imagen del juego
+            caption: mensaje,      // El texto ahora va como pie de foto
+            parse_mode: "Markdown"
           }),
         }
       );
 
       if (telegramResponse.ok) {
         console.log(
-          `   [DEBUG] ✅ Publicado con éxito en Telegram (ID: ${app.appId})`
+          `   [DEBUG] ✅ Publicado con éxito en Telegram con FOTO (ID: ${app.appId})`
         );
-        // Lo guardamos en memoria para no volver a enviarlo en el futuro
         publishedGames.push(app.appId);
       } else {
         console.error(
@@ -148,7 +148,6 @@ async function checkAndroidDeals(publishedGames = []) {
         err.message
       );
     }
-  }
 
   // --- INICIO DE LIMPIEZA DE MEMORIA ---
   // Mantenemos un máximo de 300 IDs en el historial
