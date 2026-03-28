@@ -1,23 +1,21 @@
 // services/android-deals.js
 
 const TITLE_KEYWORDS = [
-  "deal", "sale", "discount", "humble", "bundle", "100%", "off", "limited", 
-  "pro", "premium", "vip" // Los juegos de pago que se vuelven gratis suelen tener estas etiquetas
+  "deal",
+  "sale",
+  "discount",
+  "humble",
+  "bundle",
+  "100%",
+  "off",
+  "limited",
+  "pro",
+  "premium",
+  "vip",
+  "free",
 ];
 
-// Añade una lista negra para evitar Falsos Positivos gigantes
 const BLACKLIST = ["free fire", "roblox", "pubg", "candy crush", "clash"];
-
-function matchesTitle(title) {
-  const lower = (title || "").toLowerCase();
-  
-  // Si el juego está en la lista negra, lo ignoramos de inmediato
-  if (BLACKLIST.some(black => lower.includes(black))) {
-      return false;
-  }
-
-  return TITLE_KEYWORDS.some((kw) => lower.includes(kw));
-}
 
 const SEARCH_TERMS = [
   "free games limited time",
@@ -28,6 +26,12 @@ const SEARCH_TERMS = [
 
 function matchesTitle(title) {
   const lower = (title || "").toLowerCase();
+
+  // Si el juego está en la lista negra, lo ignoramos
+  if (BLACKLIST.some((black) => lower.includes(black))) {
+    return false;
+  }
+
   return TITLE_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
@@ -35,18 +39,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Le añadimos "publishedGames = []" para que la memoria funcione,
-// y le damos un valor por defecto vacío para que tus Tests no se rompan.
 async function checkAndroidDeals(publishedGames = []) {
   console.log("[google-play-scraper] 🔍 Iniciando búsqueda de ofertas...");
 
   // 1. INYECCIÓN DE DEPENDENCIAS (MAGIA PARA PRUEBAS Y PRODUCCIÓN)
   let gplay;
   if (global.__mockGplaySearch) {
-    // Si estamos corriendo un test, usamos el simulador inyectado
     gplay = { search: global.__mockGplaySearch };
   } else {
-    // Si estamos en Netlify/Producción, usamos el import dinámico real
     const modulo = await import("google-play-scraper");
     gplay = modulo.default || modulo;
   }
@@ -100,7 +100,6 @@ async function checkAndroidDeals(publishedGames = []) {
 
   // --- 2. FASE DE ENVÍO A TELEGRAM Y GUARDADO EN MEMORIA ---
   for (const app of allResults) {
-    // Si el juego ya está en la base de datos de Netlify Blobs, lo ignoramos
     if (publishedGames.includes(app.appId)) {
       continue;
     }
@@ -109,7 +108,6 @@ async function checkAndroidDeals(publishedGames = []) {
       `  → 🚀 Preparando para Telegram: [${app.priceText}] ${app.title}`
     );
 
-// Construimos el texto (ahora será el "pie de foto" o caption)
     const mensaje =
       `📱 **NEW ANDROID DEAL** 📱\n\n` +
       `🎮 *${app.title}*\n` +
@@ -122,7 +120,6 @@ async function checkAndroidDeals(publishedGames = []) {
       `👉 [Get it on Google Play](https://play.google.com/store/apps/details?id=${app.appId})`;
 
     try {
-      // 🚨 Usamos /sendPhoto en lugar de /sendMessage
       const telegramResponse = await fetch(
         `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendPhoto`,
         {
@@ -130,9 +127,9 @@ async function checkAndroidDeals(publishedGames = []) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: process.env.CHANNEL_ID,
-            photo: app.icon,       // Aquí le pasamos la URL de la imagen del juego
-            caption: mensaje,      // El texto ahora va como pie de foto
-            parse_mode: "Markdown"
+            photo: app.icon,
+            caption: mensaje,
+            parse_mode: "Markdown",
           }),
         }
       );
@@ -154,9 +151,9 @@ async function checkAndroidDeals(publishedGames = []) {
         err.message
       );
     }
+  }
 
   // --- INICIO DE LIMPIEZA DE MEMORIA ---
-  // Mantenemos un máximo de 300 IDs en el historial
   const LIMITE_MEMORIA = 300;
   if (publishedGames.length > LIMITE_MEMORIA) {
     const memoriaRecortada = publishedGames.slice(-LIMITE_MEMORIA);
