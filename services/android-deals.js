@@ -103,7 +103,7 @@ async function checkAndroidDeals(publishedGames = []) {
       `  → 🚀 Preparando para Telegram: [${app.priceText}] ${app.title}`
     );
 
-    // Construimos un mensaje atractivo
+// Construimos un mensaje atractivo
     const mensaje =
       `📱 **NEW ANDROID DEAL** 📱\n\n` +
       `🎮 *${app.title}*\n` +
@@ -113,7 +113,7 @@ async function checkAndroidDeals(publishedGames = []) {
           : app.priceText
       }\n` +
       `⭐ Rating: ${app.score ? app.score.toFixed(1) : "N/A"}\n\n` +
-      `👉 [Get it on Google Play](${app.url})`;
+      `👉 [Get it on Google Play](https://play.google.com/store/apps/details?id=${app.appId})`;
 
     try {
       const telegramResponse = await fetch(
