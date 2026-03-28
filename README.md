@@ -45,26 +45,3 @@ El diseño arquitectónico prioriza la eficiencia extrema, logrando los siguient
 * **Backend:** Node.js, `google-play-scraper` (Importación dinámica ES Modules).
 * **Integración Continua:** GitHub Actions.
 * **Frontend / Notificaciones:** Telegram Bot API (Markdown).
-
-## 🚀 Despliegue Local y Testing
-
-Para clonar y probar este proyecto (optimizado para funcionar fluidamente en equipos de bajos recursos):
-
-1. Clonar el repositorio y configurar Node.js (v18+).
-2. Ejecutar `npm install` (Instala únicamente dependencias de desarrollo y utilidades de *testing*).
-3. Crear un archivo `.env` en la raíz con las credenciales completas para lograr la paridad de entorno:
-   ```env
-   TELEGRAM_TOKEN=tu_token_aqui
-   CHANNEL_ID=@TuCanal
-   NETLIFY_SITE_ID=id_local_de_netlify
-   NETLIFY_API_TOKEN=token_local_de_netlify
-   ```
-4. **Ejecutar Pruebas Automatizadas (Aisladas y Offline):**
-   ```bash
-   npm test
-   ```
-5. **Simular el entorno Cloud localmente:**
-   ```bash
-   npx netlify dev
-   ```
-```
