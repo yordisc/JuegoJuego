@@ -2,6 +2,21 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
+
+// 1. MOCKEAMOS EL FETCH GLOBAL (Para evitar peticiones reales a Telegram)
+const originalFetch = global.fetch;
+global.fetch = async (url, options) => {
+  if (url && url.toString().includes("api.telegram.org")) {
+    return { ok: true, json: async () => ({ ok: true }) };
+  }
+  return originalFetch ? originalFetch(url, options) : { ok: true };
+};
+
+const { checkAndroidDeals } = require("../services/android-deals");
+
+process.env.TELEGRAM_TOKEN = "test-token";
+process.env.CHANNEL_ID = "@testchannel";
+
 const {
   getPublishedGamesList,
   savePublishedGamesList,

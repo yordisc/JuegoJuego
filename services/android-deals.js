@@ -1,7 +1,5 @@
 // services/android-deals.js
 
-const gplay = require('google-play-scraper');
-
 const TITLE_KEYWORDS = [
   "free",
   "gratis",
@@ -34,8 +32,18 @@ function sleep(ms) {
 // Le añadimos "publishedGames = []" para que la memoria funcione,
 // y le damos un valor por defecto vacío para que tus Tests no se rompan.
 async function checkAndroidDeals(publishedGames = []) {
-
   console.log("[google-play-scraper] 🔍 Iniciando búsqueda de ofertas...");
+
+  // 1. INYECCIÓN DE DEPENDENCIAS (MAGIA PARA PRUEBAS Y PRODUCCIÓN)
+  let gplay;
+  if (global.__mockGplaySearch) {
+    // Si estamos corriendo un test, usamos el simulador inyectado
+    gplay = { search: global.__mockGplaySearch };
+  } else {
+    // Si estamos en Netlify/Producción, usamos el import dinámico real
+    const modulo = await import("google-play-scraper");
+    gplay = modulo.default || modulo;
+  }
 
   const allResults = [];
   const seenAppIds = new Set();
