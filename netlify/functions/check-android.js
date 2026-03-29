@@ -58,14 +58,14 @@ exports.handler = async (event, context) => {
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
     console.log(
-      "📡 [DEBUG 3/4] Consultando Reddit y buscando ofertas de Android..."
+      "📡 [DEBUG 3/4] Consultando y buscando ofertas de Android..."
     );
     await checkAndroidDeals(publishedGames);
     console.log("   - Búsqueda finalizada.");
 
     // --- PASO 4: GUARDADO DE ESTADO ---
     console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
-    await savePublishedGamesList(store, publishedGames);
+    await savePublishedGamesList(store, publishedGames, "android");
     console.log("   - Memoria actualizada exitosamente.");
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");

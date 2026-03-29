@@ -1,30 +1,53 @@
 // utils/memory.js
-// Módulo para gestionar la persistencia de datos (evitar duplicados).
 
-const { getStore } = require("@netlify/blobs");
+// 1. DICCIONARIO DE CLAVES: 
+// Esto hace que el código sea ultra escalable. Si mañana agregas "playstation", 
+// solo añades una línea aquí y todo el resto del código sigue funcionando sin tocar un solo "if".
+const MEMORY_KEYS = {
+  android: "published_games_android",
+  pc: "published_games_pc",
+};
 
-// Lee el "cajón" de la nube y devuelve la lista de IDs guardados.
-// Si los datos están corruptos o son inválidos, devuelve [] de forma segura
-// en lugar de colapsar toda la función scheduled.
-async function getPublishedGamesList(store) {
-  const data = await store.get("published_games");
-  if (!data) return [];
+// Función auxiliar (privada) para no repetir código
+function getKey(platform) {
+  // Retorna la clave correcta, o la de android por defecto si envían algo extraño
+  return MEMORY_KEYS[platform] || MEMORY_KEYS.android;
+}
+
+async function getPublishedGamesList(store, platform = "android") {
+  const key = getKey(platform);
 
   try {
+    const data = await store.get(key);
+    // Si no hay datos (nube vacía), retornamos array vacío
+    if (!data) return [];
+
     return JSON.parse(data);
   } catch (err) {
-    console.error(
-      "[memory] ⚠️ Datos corruptos en Netlify Blobs, reiniciando memoria:",
-      err.message
-    );
+    // Este catch ahora atrapa tanto errores de red (store.get) como de parseo (JSON.parse)
+    console.error(`[memory] ⚠️ Error leyendo datos (${platform}), reiniciando a vacío:`, err.message);
     return [];
   }
 }
 
-// Guarda la nueva lista directamente en la nube.
-// (La limpieza y el límite de datos se gestionan en la capa de servicios)
-async function savePublishedGamesList(store, publishedGames) {
-  await store.setJSON("published_games", publishedGames);
+async function savePublishedGamesList(store, publishedGames, platform = "android") {
+  const key = getKey(platform);
+
+  // 2. VALIDACIÓN DEFENSIVA: 
+  // Nos aseguramos de que a la base de datos NUNCA llegue algo que no sea un Array.
+  const dataToSave = Array.isArray(publishedGames) ? publishedGames : [];
+
+  try {
+    // 3. PROTECCIÓN DE ESCRITURA:
+    // Evitamos que una caída de red de Netlify tumbe todo el bot.
+    await store.setJSON(key, dataToSave);
+  } catch (err) {
+    console.error(`[memory] ❌ Error crítico al guardar en la nube (${platform}):`, err.message);
+  }
 }
 
-module.exports = { getPublishedGamesList, savePublishedGamesList };
+// Exportamos para que los servicios y los tests puedan usarlas
+module.exports = {
+  getPublishedGamesList,
+  savePublishedGamesList
+};

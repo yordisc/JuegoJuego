@@ -20,27 +20,23 @@ exports.handler = async (event, context) => {
     const apiToken = process.env.NETLIFY_API_TOKEN;
 
     console.log(
-      `   - NETLIFY_SITE_ID: ${
-        siteId
-          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
-          : "❌ NO DEFINIDO"
+      `   - NETLIFY_SITE_ID: ${siteId
+        ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+        : "❌ NO DEFINIDO"
       }`
     );
     console.log(
-      `   - NETLIFY_API_TOKEN: ${
-        apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+      `   - NETLIFY_API_TOKEN: ${apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
       }`
     );
     console.log(
-      `   - TELEGRAM_TOKEN: ${
-        process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+      `   - TELEGRAM_TOKEN: ${process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
       }`
     );
     console.log(
-      `   - CHANNEL_ID: ${
-        process.env.CHANNEL_ID
-          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
-          : "❌ NO DEFINIDO"
+      `   - CHANNEL_ID: ${process.env.CHANNEL_ID
+        ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+        : "❌ NO DEFINIDO"
       }`
     );
 
@@ -53,19 +49,18 @@ exports.handler = async (event, context) => {
     // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
     console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
     const store = getStore(blobOptions);
-    const publishedGames = await getPublishedGamesList(store);
+    // 🟢 AÑADE "pc" AQUÍ
+    const publishedGames = await getPublishedGamesList(store, "pc");
     console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log(
-      "📡 [DEBUG 3/4] Consultando GamerPower y filtrando juegos de PC..."
-    );
+    console.log("📡 [DEBUG 3/4] Consultando GamerPower y filtrando juegos de PC...");
     await checkPCGames(publishedGames);
     console.log("   - Búsqueda finalizada.");
 
     // --- PASO 4: GUARDADO DE ESTADO ---
     console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
-    await savePublishedGamesList(store, publishedGames);
+    await savePublishedGamesList(store, publishedGames, "pc");
     console.log("   - Memoria actualizada exitosamente.");
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");

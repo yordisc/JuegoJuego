@@ -102,7 +102,7 @@ test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       // Verifica que use la clave correcta en la base de datos
       assert.strictEqual(
         llaveGuardada,
-        "published_games",
+        "published_games_android",
         "Se guardó con una clave incorrecta en la base de datos"
       );
 
