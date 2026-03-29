@@ -3,7 +3,28 @@
 const test = require("node:test");
 const assert = require("node:assert");
 
-// 1. MOCKEAMOS EL FETCH GLOBAL (Para evitar peticiones reales a Telegram)
+// CORRECCIÓN: memory.js hace require('@netlify/blobs') al cargarse,
+// pero ese módulo solo existe en el entorno de Netlify (producción).
+// Lo interceptamos aquí igual que se hace con google-play-scraper en
+// android-deals.test.js, antes de que memory.js sea requerido.
+// Las funciones getPublishedGamesList y savePublishedGamesList reciben
+// el store como parámetro, así que el módulo real nunca se usa en tests.
+const Module = require("module");
+const originalLoad = Module._load;
+
+Module._load = function (request, ...args) {
+  if (request === "@netlify/blobs") {
+    return {
+      getStore: () => ({
+        get: async () => null,
+        setJSON: async () => { },
+      }),
+    };
+  }
+  return originalLoad.call(this, request, ...args);
+};
+
+// Mockeamos fetch para evitar peticiones reales a Telegram
 const originalFetch = global.fetch;
 global.fetch = async (url, options) => {
   if (url && url.toString().includes("api.telegram.org")) {
@@ -12,11 +33,10 @@ global.fetch = async (url, options) => {
   return originalFetch ? originalFetch(url, options) : { ok: true };
 };
 
-const { checkAndroidDeals } = require("../services/android-deals");
-
 process.env.TELEGRAM_TOKEN = "test-token";
 process.env.CHANNEL_ID = "@testchannel";
 
+// Ahora sí podemos requerir memory.js sin que explote
 const {
   getPublishedGamesList,
   savePublishedGamesList,
@@ -26,7 +46,7 @@ test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
   await t.test(
     "✅ Caso 1: Debe devolver un array vacío [] si es la primera vez (nube vacía)",
     async () => {
-      // Simulamos un "cajón" que devuelve null cuando se le pide la data
+      // Simulamos un store que devuelve null (primera ejecución, sin datos previos)
       const mockStoreEmpty = {
         get: async () => null,
       };
@@ -44,9 +64,9 @@ test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
   await t.test(
     "✅ Caso 2: Debe leer y decodificar correctamente los datos guardados",
     async () => {
-      const mockData = ["https://link1.com", "https://link2.com"];
+      const mockData = ["com.game.one", "com.game.two"];
 
-      // Simulamos un "cajón" que devuelve un texto JSON (como lo hace Netlify)
+      // Simulamos un store con datos previos guardados como JSON string
       const mockStoreWithData = {
         get: async () => JSON.stringify(mockData),
       };
@@ -64,13 +84,12 @@ test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
   await t.test(
     "✅ Caso 3: Debe guardar la lista exacta que recibe en la nube",
     async () => {
-      // Creamos una lista de prueba
       const datosPrueba = ["juego_A", "juego_B", "juego_C"];
 
       let llaveGuardada = "";
       let datosQueSeIntentanGuardar = [];
 
-      // Simulamos el store, y "atrapamos" lo que la función intenta guardar
+      // Capturamos exactamente qué le llega al store al guardar
       const mockStore = {
         setJSON: async (key, data) => {
           llaveGuardada = key;
@@ -78,22 +97,46 @@ test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
         },
       };
 
-      // Ejecutamos la función de guardado
       await savePublishedGamesList(mockStore, datosPrueba);
 
-      // 1. Verificamos que use la llave correcta
+      // Verifica que use la clave correcta en la base de datos
       assert.strictEqual(
         llaveGuardada,
         "published_games",
-        "Se guardó con una llave incorrecta en la base de datos"
+        "Se guardó con una clave incorrecta en la base de datos"
       );
 
-      // 2. Verificamos que los datos guardados sean EXACTAMENTE los que le pasamos (sin recortes)
+      // Verifica que los datos lleguen sin modificaciones (sin recortes ni transformaciones)
       assert.deepStrictEqual(
         datosQueSeIntentanGuardar,
         datosPrueba,
         "El gestor de memoria alteró los datos antes de guardarlos"
       );
+    }
+  );
+
+  await t.test(
+    "✅ Caso 4: Debe manejar un JSON malformado en la nube sin romper",
+    async () => {
+      // Si los datos en Netlify Blobs están corruptos, el bot no debe colapsar.
+      // Debe devolver un array vacío de forma segura.
+      const mockStoreCorrupted = {
+        get: async () => "esto_no_es_json_valido{{{",
+      };
+
+      let result;
+      try {
+        result = await getPublishedGamesList(mockStoreCorrupted);
+        // Si llegamos aquí sin error: verificamos que devuelva algo usable
+        assert.ok(Array.isArray(result), "Debe devolver un array aunque el JSON sea inválido");
+      } catch (err) {
+        // Si lanza excepción, la capturamos para dar un mensaje claro
+        // NOTA: si este test falla, considera añadir un try/catch en getPublishedGamesList
+        assert.fail(
+          `getPublishedGamesList lanzó excepción con datos corruptos: ${err.message}\n` +
+          `Considera añadir manejo de errores en utils/memory.js para este caso.`
+        );
+      }
     }
   );
 });
