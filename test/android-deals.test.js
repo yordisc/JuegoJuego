@@ -58,10 +58,9 @@ test("Suite Android Consumer", async (t) => {
     const result = await checkAndroidDeals(store, publishedGames);
 
     assert.strictEqual(result.publishedCount, 1);
-    assert.deepStrictEqual(publishedGames[0], {
-      id: "com.new.app",
-      messageId: 111,
-    });
+    assert.ok(Number.isInteger(publishedGames[0].publishedAt));
+    assert.strictEqual(publishedGames[0].id, "com.new.app");
+    assert.strictEqual(publishedGames[0].messageId, 111);
   });
 
   await t.test("No duplica IDs ya publicados", async () => {

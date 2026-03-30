@@ -53,8 +53,8 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       const result = await getPublishedGamesList(mockStoreWithData);
 
       assert.deepStrictEqual(result, [
-        { id: "com.game.one", messageId: null },
-        { id: "com.game.two", messageId: null },
+        { id: "com.game.one", messageId: null, publishedAt: null },
+        { id: "com.game.two", messageId: null, publishedAt: null },
       ]);
     }
   );
@@ -78,9 +78,9 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
 
       assert.strictEqual(llaveGuardada, "published_games_android");
       assert.deepStrictEqual(datosQueSeIntentanGuardar, [
-        { id: "juego_A", messageId: null },
-        { id: "juego_B", messageId: null },
-        { id: "juego_C", messageId: null },
+        { id: "juego_A", messageId: null, publishedAt: null },
+        { id: "juego_B", messageId: null, publishedAt: null },
+        { id: "juego_C", messageId: null, publishedAt: null },
       ]);
     }
   );
@@ -112,8 +112,8 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       const result = normalizePublishedGames(mixed);
 
       assert.deepStrictEqual(result, [
-        { id: "com.legacy.one", messageId: null },
-        { id: "com.new.one", messageId: 123 },
+        { id: "com.legacy.one", messageId: null, publishedAt: null },
+        { id: "com.new.one", messageId: 123, publishedAt: null },
       ]);
     }
   );

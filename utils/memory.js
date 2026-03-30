@@ -10,7 +10,7 @@ const MEMORY_KEYS = {
 
 function normalizeMemoryEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
-    return { id: entry.trim(), messageId: null };
+    return { id: entry.trim(), messageId: null, publishedAt: null };
   }
 
   if (!entry || typeof entry !== "object") {
@@ -35,7 +35,14 @@ function normalizeMemoryEntry(entry) {
       ? Number(rawMessageId)
       : null;
 
-  return { id, messageId };
+  const rawPublishedAt = entry.publishedAt;
+  const publishedAt = Number.isInteger(rawPublishedAt)
+    ? rawPublishedAt
+    : typeof rawPublishedAt === "string" && /^\d+$/.test(rawPublishedAt)
+      ? Number(rawPublishedAt)
+      : null;
+
+  return { id, messageId, publishedAt };
 }
 
 function normalizePublishedGames(rawData) {

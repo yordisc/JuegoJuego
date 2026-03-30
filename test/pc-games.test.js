@@ -60,10 +60,9 @@ test("Suite PC Consumer", async (t) => {
     const result = await checkPCGames(store, publishedGames);
 
     assert.strictEqual(result.publishedCount, 1);
-    assert.deepStrictEqual(publishedGames[0], {
-      id: "999",
-      messageId: 333,
-    });
+    assert.ok(Number.isInteger(publishedGames[0].publishedAt));
+    assert.strictEqual(publishedGames[0].id, "999");
+    assert.strictEqual(publishedGames[0].messageId, 333);
   });
 
   await t.test("No duplica IDs ya publicados", async () => {

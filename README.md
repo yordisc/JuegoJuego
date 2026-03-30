@@ -178,3 +178,57 @@ npm run blobs:show
   - Accion: confirmar que `NETLIFY_API_TOKEN` sea un Personal Access Token de Netlify (no clave SSH ni llave PEM).
 
 ---
+
+## 🧹 Limpieza Automática de Duplicados
+
+Para evitar accidentes durante las pruebas, existe una función schedulada que **elimina mensajes duplicados automaticamente**.
+
+### ¿Cómo funciona?
+
+- Corre **1 vez al día a las 3:00 AM UTC** (configurable en `netlify.toml`).
+- Agrupa mensajes por ID de juego
+- Detecta duplicados (más de 1 copia del mismo juego)
+- Compara por antigüedad (`publishedAt`)
+- **Elimina los más antiguos, mantiene el más reciente**
+- Registra detalles en los logs de Netlify
+
+### Métricas
+
+Cada ejecución registra:
+
+```
+[METRICS] Resumen de Limpieza:
+   - Duplicados encontrados: X
+   - Mensajes eliminados: Y
+   - Errores de limpieza: Z
+```
+
+### Almacenamiento de timestamp
+
+Cada mensaje publicado ahora almacena su timestamp:
+
+```json
+{
+  "id": "game-id",
+  "messageId": 123456789,
+  "publishedAt": 1711868400000 // timestamp en ms (Date.now())
+}
+```
+
+### Cambiar el schedule
+
+Una vez por día a las 3 AM UTC es la configuración por defecto.  
+Para cambiar, edita `netlify.toml`:
+
+```toml
+[functions.clean-duplicates]
+  schedule = "0 3 * * *"  # Sintaxis cron
+```
+
+Algunos ejemplos:
+
+- `"0 */6 * * *"` → cada 6 horas
+- `"0 0 * * *"` → medianoche UTC
+- `"0 10 * * 0"` → cada domingo a las 10 AM UTC
+
+---

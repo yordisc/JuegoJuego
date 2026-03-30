@@ -215,7 +215,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
         const payload = await telegramResponse.json().catch(() => ({}));
         const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
 
-        publishedGames.push({ id, messageId });
+        publishedGames.push({ id, messageId, publishedAt: Date.now() });
         publishedIds.add(id);
         publishedCount += 1;
       } catch (err) {

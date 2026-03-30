@@ -2,7 +2,7 @@
   # Carpeta donde Netlify buscará tus scripts
   directory = "netlify/functions"
 
-# Microservicio 1: Reddit (Android)
+# Microservicio 1: Scraper (Android)
 [functions.check-android]
   # Ejecutar cada 20 minutos
   schedule = "*/20 * * * *"
@@ -16,3 +16,8 @@
 [functions.clean-expired]
   # Ejecutar cada 30 minutos
   schedule = "*/30 * * * *"
+
+# Microservicio 4: Limpieza de duplicados (Android + PC)
+[functions.clean-duplicates]
+  # Ejecutar 1 vez al día a las 3:00 AM UTC
+  schedule = "0 3 * * *"
