@@ -3,12 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 
-// CORRECCIÓN: memory.js hace require('@netlify/blobs') al cargarse,
-// pero ese módulo solo existe en el entorno de Netlify (producción).
-// Lo interceptamos aquí igual que se hace con google-play-scraper en
-// android-deals.test.js, antes de que memory.js sea requerido.
-// Las funciones getPublishedGamesList y savePublishedGamesList reciben
-// el store como parámetro, así que el módulo real nunca se usa en tests.
+// CORRECCION: memory.js puede usarse en entorno Netlify, pero estos tests son offline.
 const Module = require("module");
 const originalLoad = Module._load;
 
@@ -17,79 +12,61 @@ Module._load = function (request, ...args) {
     return {
       getStore: () => ({
         get: async () => null,
-        setJSON: async () => { },
+        setJSON: async () => {},
       }),
     };
   }
   return originalLoad.call(this, request, ...args);
 };
 
-// Mockeamos fetch para evitar peticiones reales a Telegram
-const originalFetch = global.fetch;
-global.fetch = async (url, options) => {
-  if (url && url.toString().includes("api.telegram.org")) {
-    return { ok: true, json: async () => ({ ok: true }) };
-  }
-  return originalFetch ? originalFetch(url, options) : { ok: true };
-};
-
-process.env.TELEGRAM_TOKEN = "test-token";
-process.env.CHANNEL_ID = "@testchannel";
-
-// Ahora sí podemos requerir memory.js sin que explote
 const {
+  normalizePublishedGames,
   getPublishedGamesList,
   savePublishedGamesList,
 } = require("../utils/memory");
 
-test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
+test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
+  t.after(() => {
+    Module._load = originalLoad;
+  });
+
   await t.test(
-    "✅ Caso 1: Debe devolver un array vacío [] si es la primera vez (nube vacía)",
+    "Caso 1: Debe devolver [] si no hay datos en nube",
     async () => {
-      // Simulamos un store que devuelve null (primera ejecución, sin datos previos)
       const mockStoreEmpty = {
         get: async () => null,
       };
 
       const result = await getPublishedGamesList(mockStoreEmpty);
-
-      assert.deepStrictEqual(
-        result,
-        [],
-        "El bot no inicializó correctamente un array vacío"
-      );
+      assert.deepStrictEqual(result, []);
     }
   );
 
   await t.test(
-    "✅ Caso 2: Debe leer y decodificar correctamente los datos guardados",
+    "Caso 2: Debe normalizar strings heredados a objetos",
     async () => {
       const mockData = ["com.game.one", "com.game.two"];
-
-      // Simulamos un store con datos previos guardados como JSON string
       const mockStoreWithData = {
         get: async () => JSON.stringify(mockData),
       };
 
       const result = await getPublishedGamesList(mockStoreWithData);
 
-      assert.deepStrictEqual(
-        result,
-        mockData,
-        "El bot no pudo leer los datos guardados"
-      );
+      assert.deepStrictEqual(result, [
+        { id: "com.game.one", messageId: null },
+        { id: "com.game.two", messageId: null },
+      ]);
     }
   );
 
   await t.test(
-    "✅ Caso 3: Debe guardar la lista exacta que recibe en la nube",
+    "Caso 3: Debe guardar en formato normalizado",
     async () => {
       const datosPrueba = ["juego_A", "juego_B", "juego_C"];
 
       let llaveGuardada = "";
       let datosQueSeIntentanGuardar = [];
 
-      // Capturamos exactamente qué le llega al store al guardar
       const mockStore = {
         setJSON: async (key, data) => {
           llaveGuardada = key;
@@ -99,44 +76,45 @@ test("🧪 Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
 
       await savePublishedGamesList(mockStore, datosPrueba);
 
-      // Verifica que use la clave correcta en la base de datos
-      assert.strictEqual(
-        llaveGuardada,
-        "published_games_android",
-        "Se guardó con una clave incorrecta en la base de datos"
-      );
-
-      // Verifica que los datos lleguen sin modificaciones (sin recortes ni transformaciones)
-      assert.deepStrictEqual(
-        datosQueSeIntentanGuardar,
-        datosPrueba,
-        "El gestor de memoria alteró los datos antes de guardarlos"
-      );
+      assert.strictEqual(llaveGuardada, "published_games_android");
+      assert.deepStrictEqual(datosQueSeIntentanGuardar, [
+        { id: "juego_A", messageId: null },
+        { id: "juego_B", messageId: null },
+        { id: "juego_C", messageId: null },
+      ]);
     }
   );
 
   await t.test(
-    "✅ Caso 4: Debe manejar un JSON malformado en la nube sin romper",
+    "Caso 4: Debe manejar JSON malformado sin romper",
     async () => {
-      // Si los datos en Netlify Blobs están corruptos, el bot no debe colapsar.
-      // Debe devolver un array vacío de forma segura.
       const mockStoreCorrupted = {
         get: async () => "esto_no_es_json_valido{{{",
       };
 
-      let result;
-      try {
-        result = await getPublishedGamesList(mockStoreCorrupted);
-        // Si llegamos aquí sin error: verificamos que devuelva algo usable
-        assert.ok(Array.isArray(result), "Debe devolver un array aunque el JSON sea inválido");
-      } catch (err) {
-        // Si lanza excepción, la capturamos para dar un mensaje claro
-        // NOTA: si este test falla, considera añadir un try/catch en getPublishedGamesList
-        assert.fail(
-          `getPublishedGamesList lanzó excepción con datos corruptos: ${err.message}\n` +
-          `Considera añadir manejo de errores en utils/memory.js para este caso.`
-        );
-      }
+      const result = await getPublishedGamesList(mockStoreCorrupted);
+      assert.ok(Array.isArray(result));
+      assert.deepStrictEqual(result, []);
+    }
+  );
+
+  await t.test(
+    "Caso 5: Debe normalizar mezcla de strings y objetos sin duplicar",
+    async () => {
+      const mixed = [
+        "com.legacy.one",
+        { id: "com.new.one", messageId: 123 },
+        { id: "com.legacy.one", messageId: 999 },
+        { id: "", messageId: 1 },
+        null,
+      ];
+
+      const result = normalizePublishedGames(mixed);
+
+      assert.deepStrictEqual(result, [
+        { id: "com.legacy.one", messageId: null },
+        { id: "com.new.one", messageId: 123 },
+      ]);
     }
   );
 });

@@ -4,7 +4,17 @@
   "description": "",
   "main": "test-bot.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "produce:android": "node scripts/github-android.js",
+    "produce:pc": "node scripts/github-pc.js",
+    "produce:all": "npm run produce:android && npm run produce:pc",
+    "blobs:show": "node scripts/blobs-admin.js show",
+    "blobs:clear-queues": "node scripts/blobs-admin.js clear-queues",
+    "blobs:normalize-memory": "node scripts/blobs-admin.js normalize-memory",
+    "smoke:producer": "npm run produce:all",
+    "smoke:verify": "node scripts/smoke-verify.js",
+    "smoke:verify:strict": "node scripts/smoke-verify.js --strict",
+    "ops:status": "npm run blobs:show && npm run smoke:verify"
   },
   "repository": {
     "type": "git",
@@ -21,7 +31,9 @@
   "dependencies": {
     "@netlify/blobs": "^10.7.4",
     "dotenv": "^17.3.1",
-    "google-play-scraper": "^10.1.2",
     "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "google-play-scraper": "^10.1.2"
   }
 }

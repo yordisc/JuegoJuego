@@ -54,9 +54,9 @@ exports.handler = async (event, context) => {
     console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log("📡 [DEBUG 3/4] Consultando GamerPower y filtrando juegos de PC...");
-    await checkPCGames(publishedGames);
-    console.log("   - Búsqueda finalizada.");
+    console.log("📡 [DEBUG 3/4] Procesando pc_queue y pc_expired...");
+    await checkPCGames(store, publishedGames);
+    console.log("   - Colas PC procesadas.");
 
     // --- PASO 4: GUARDADO DE ESTADO ---
     console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
@@ -65,7 +65,7 @@ exports.handler = async (event, context) => {
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
     console.log("========================================");
-    return { statusCode: 200, body: "Búsqueda PC completada con éxito." };
+    return { statusCode: 200, body: "Consumo PC completado con éxito." };
   } catch (error) {
     console.error("❌ ERROR CRÍTICO EN PC:");
     console.error(error);

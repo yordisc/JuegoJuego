@@ -1,207 +1,241 @@
 // services/android-deals.js
 
-// CORRECCIÓN BUG #1:
-// Se eliminó "free" y palabras genéricas sueltas de TITLE_KEYWORDS.
-// Ahora los keywords son FRASES que indican genuinamente una oferta temporal,
-// no palabras que aparecen en el título de cualquier app gratuita permanente.
-const TITLE_KEYWORDS = [
-  "deal",
-  "sale",
-  "discount",
-  "humble",
-  "bundle",
-  "100% off",
-  "limited time",
-  "paid game free",
-  "price drop",
-  "normally paid",
-  "gratis por tiempo",
-  "oferta limitada",
-  "free today",
-  "free this week",
-  "goes free",
-  "premium",
-  "vip",
-];
+const KEY_ANDROID_QUEUE = "android_queue";
+const KEY_ANDROID_EXPIRED = "android_expired";
+const EXPIRED_MARK = "[❌ OFERTA EXPIRADA]";
+const { requestWithRetry } = require("../utils/telegram");
 
-const BLACKLIST = [
-  "free fire",
-  "roblox",
-  "pubg",
-  "candy crush",
-  "clash",
-  "brawl stars",
-  "subway surfers",
-  "among us",
-];
-
-const SEARCH_TERMS = [
-  "free games limited time",
-  "juegos gratis android",
-  "android game sale",
-  "paid game free",
-];
-
-// CORRECCIÓN BUG #1:
-// La blacklist ahora se aplica SIEMPRE, y la condición de entrada es
-// SOLO matchesTitle(). Se eliminó "app.free" como condición de entrada
-// porque app.free=true en google-play-scraper significa que la app es
-// gratuita en este momento, NO que está "de oferta". Eso incluye
-// todos los juegos freemium permanentes (Free Fire, Subway Surfers, etc.)
-// que antes llenaban la memoria y causaban las repeticiones.
-function matchesTitle(title) {
-  const lower = (title || "").toLowerCase();
-
-  // La blacklist se evalúa primero, siempre, sin excepción
-  if (BLACKLIST.some((black) => lower.includes(black))) {
-    return false;
+function getPublishedGameId(entry) {
+  if (typeof entry === "string") {
+    return entry;
   }
 
-  return TITLE_KEYWORDS.some((kw) => lower.includes(kw));
+  if (entry && typeof entry === "object" && entry.id != null) {
+    return String(entry.id);
+  }
+
+  return "";
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function getPublishedMessageId(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const raw = entry.messageId;
+  if (Number.isInteger(raw)) {
+    return raw;
+  }
+
+  if (typeof raw === "string" && /^\d+$/.test(raw)) {
+    return Number(raw);
+  }
+
+  return null;
 }
 
-async function checkAndroidDeals(publishedGames = []) {
-  console.log("[google-play-scraper] 🔍 Iniciando búsqueda de ofertas...");
-
-  // INYECCIÓN DE DEPENDENCIAS (para pruebas y producción)
-  let gplay;
-  if (global.__mockGplaySearch) {
-    gplay = { search: global.__mockGplaySearch };
-  } else {
-    const modulo = await import("google-play-scraper");
-    gplay = modulo.default || modulo;
+async function readJsonArray(store, key) {
+  const raw = await store.get(key);
+  if (!raw) {
+    return [];
   }
 
-  const allResults = [];
-  const seenAppIds = new Set();
-
-  // --- 1. FASE DE BÚSQUEDA Y RECOLECCIÓN ---
-  for (const term of SEARCH_TERMS) {
-    try {
-      console.log(`[google-play-scraper] 🔎 Buscando: "${term}"`);
-
-      const results = await gplay.search({
-        term,
-        num: 30,
-        lang: "es",
-        country: "us",
-        throttle: 10,
-      });
-
-      for (const app of results) {
-        if (seenAppIds.has(app.appId)) continue;
-        seenAppIds.add(app.appId);
-
-        // CORRECCIÓN BUG #1 aplicada aquí:
-        // Solo se usa matchesTitle(), que siempre verifica la blacklist primero.
-        // Se eliminó "app.free ||" que era la causa raíz del spam.
-        if (matchesTitle(app.title)) {
-          allResults.push({
-            title: app.title,
-            appId: app.appId,
-            url: app.url,
-            icon: app.icon,
-            developer: app.developer,
-            score: app.score,
-            free: app.free,
-            priceText: app.priceText || "Free",
-            genre: app.genre,
-            summary: app.summary,
-          });
-        }
-      }
-      await sleep(1500);
-    } catch (err) {
-      console.warn(
-        `[google-play-scraper] ⚠️ Falló búsqueda "${term}": ${err.message}`
-      );
-    }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn(`[android-consumer] JSON invalido en ${key}, se reinicia a []`);
+    return [];
   }
+}
 
-  console.log(
-    `[google-play-scraper] ✅ Total ofertas candidatas: ${allResults.length}`
-  );
+async function writeQueue(store, key, data) {
+  await store.setJSON(key, Array.isArray(data) ? data : []);
+}
 
-  // --- 2. FASE DE ENVÍO A TELEGRAM Y GUARDADO EN MEMORIA ---
-  for (const app of allResults) {
-    if (publishedGames.includes(app.appId)) {
-      console.log(`  → ⏭️  Saltando (ya publicado): ${app.title}`);
+function dedupeById(items) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    const id = getPublishedGameId(item);
+    if (!id || seen.has(id)) {
       continue;
     }
 
-    console.log(
-      `  → 🚀 Preparando para Telegram: [${app.priceText}] ${app.title}`
-    );
+    seen.add(id);
+    result.push(item);
+  }
 
-    const mensaje =
-      `📱 **NEW ANDROID DEAL** 📱\n\n` +
-      `🎮 *${app.title}*\n` +
-      `🏷️ Price: ${app.free || app.priceText.toLowerCase() === "free"
-        ? "FREE!"
-        : app.priceText
-      }\n` +
-      `⭐ Rating: ${app.score ? app.score.toFixed(1) : "N/A"}\n\n` +
-      `👉 [Get it on Google Play](https://play.google.com/store/apps/details?id=${app.appId})`;
+  return result;
+}
+
+function buildAndroidMessage(item) {
+  const title = item.title || item.id || "Android Deal";
+  const score = Number.isFinite(item.score) ? item.score.toFixed(1) : "N/A";
+  const url =
+    item.url ||
+    (item.id
+      ? `https://play.google.com/store/apps/details?id=${item.id}`
+      : "https://play.google.com/store/apps");
+
+  return (
+    `📱 **NEW ANDROID DEAL** 📱\n\n` +
+    `🎮 *${title}*\n` +
+    `⭐ Rating: ${score}\n\n` +
+    `👉 [Get it on Google Play](${url})`
+  );
+}
+
+async function sendAndroidPublication(item) {
+  const message = buildAndroidMessage(item);
+  const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+
+  if (item.icon) {
+    return requestWithRetry(
+      `${telegramBase}/sendPhoto`,
+      {
+        chat_id: process.env.CHANNEL_ID,
+        photo: item.icon,
+        caption: message,
+        parse_mode: "Markdown",
+      }
+    );
+  }
+
+  return requestWithRetry(
+    `${telegramBase}/sendMessage`,
+    {
+      chat_id: process.env.CHANNEL_ID,
+      text: message,
+      parse_mode: "Markdown",
+      disable_web_page_preview: false,
+    }
+  );
+}
+
+async function markAndroidExpired(messageId) {
+  const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+
+  return requestWithRetry(
+    `${telegramBase}/editMessageCaption`,
+    {
+      chat_id: process.env.CHANNEL_ID,
+      message_id: messageId,
+      caption: `${EXPIRED_MARK}\n\nEsta oferta ya no esta disponible.`,
+      parse_mode: "Markdown",
+    }
+  );
+}
+
+async function checkAndroidDeals(store, publishedGames = []) {
+  console.log("[android-consumer] Procesando colas Android...");
+
+  const queue = await readJsonArray(store, KEY_ANDROID_QUEUE);
+  const expiredQueue = await readJsonArray(store, KEY_ANDROID_EXPIRED);
+
+  const publishedIds = new Set(
+    publishedGames.map(getPublishedGameId).filter(Boolean)
+  );
+
+  let publishedCount = 0;
+  let expiredCount = 0;
+  let publishErrors = 0;
+  let editErrors = 0;
+  const retryQueue = [];
+  const retryExpiredQueue = [];
+
+  for (const item of dedupeById(queue)) {
+    const id = getPublishedGameId(item);
+    if (!id || publishedIds.has(id)) {
+      continue;
+    }
 
     try {
-      const telegramResponse = await fetch(
-        `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendPhoto`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: process.env.CHANNEL_ID,
-            photo: app.icon,
-            caption: mensaje,
-            parse_mode: "Markdown",
-          }),
-        }
-      );
+      const telegramResponse = await sendAndroidPublication(item);
 
-      if (telegramResponse.ok) {
-        console.log(
-          `   [DEBUG] ✅ Publicado en Telegram (ID: ${app.appId})`
-        );
-        // Solo se guarda en memoria DESPUÉS de confirmar publicación exitosa
-        publishedGames.push(app.appId);
-      } else {
+      if (!telegramResponse.ok) {
         console.error(
-          `   [DEBUG] ❌ Error de Telegram:`,
+          "[android-consumer] Error publicando:",
           await telegramResponse.text()
         );
-        // No se guarda en memoria si Telegram falló, para reintentar la próxima vez
+        publishErrors += 1;
+        retryQueue.push(item);
+        continue;
       }
+
+      const payload = await telegramResponse.json().catch(() => ({}));
+      const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
+
+      publishedGames.push({ id, messageId });
+      publishedIds.add(id);
+      publishedCount += 1;
     } catch (err) {
-      console.error(
-        `   [DEBUG] ❌ Error de red al enviar a Telegram:`,
-        err.message
-      );
-      // Tampoco se guarda si hubo error de red
+      console.error("[android-consumer] Error de red publicando:", err.message);
+      publishErrors += 1;
+      retryQueue.push(item);
     }
   }
 
-  // --- LIMPIEZA DE MEMORIA (FIFO) ---
-  // CORRECCIÓN BUG #2:
-  // Se redujo el límite de 300 a 150. Con el BUG #1 resuelto, ahora solo
-  // entran apps que realmente son ofertas. Esas ofertas duran días/semanas,
-  // por lo que 150 slots son más que suficientes y la cola tarda mucho más
-  // en rotar, evitando que IDs válidos sean eliminados prematuramente.
-  // Si en el futuro el volumen sube, se puede subir gradualmente este número.
-  const LIMITE_MEMORIA = 150;
-  if (publishedGames.length > LIMITE_MEMORIA) {
-    const memoriaRecortada = publishedGames.slice(-LIMITE_MEMORIA);
-    publishedGames.length = 0;
-    publishedGames.push(...memoriaRecortada);
-    console.log(
-      `   [DEBUG] 🧹 Memoria Android recortada a ${LIMITE_MEMORIA} registros.`
-    );
+  for (const item of dedupeById(expiredQueue)) {
+    const id = getPublishedGameId(item);
+    if (!id) {
+      continue;
+    }
+
+    const found = publishedGames.find((entry) => getPublishedGameId(entry) === id);
+    const messageId = getPublishedMessageId(found) ?? getPublishedMessageId(item);
+
+    if (messageId != null) {
+      try {
+        const telegramResponse = await markAndroidExpired(messageId);
+        if (!telegramResponse.ok) {
+          console.error(
+            "[android-consumer] Error editando expirado:",
+            await telegramResponse.text()
+          );
+          editErrors += 1;
+          retryExpiredQueue.push(item);
+          continue;
+        }
+      } catch (err) {
+        console.error("[android-consumer] Error de red editando expirado:", err.message);
+        editErrors += 1;
+        retryExpiredQueue.push(item);
+        continue;
+      }
+    }
+
+    const index = publishedGames.findIndex((entry) => getPublishedGameId(entry) === id);
+    if (index >= 0) {
+      publishedGames.splice(index, 1);
+      publishedIds.delete(id);
+      expiredCount += 1;
+    }
   }
 
-  return allResults;
+  await writeQueue(store, KEY_ANDROID_QUEUE, dedupeById(retryQueue));
+  await writeQueue(store, KEY_ANDROID_EXPIRED, dedupeById(retryExpiredQueue));
+
+  console.log(
+    `[android-consumer] Publicados: ${publishedCount} | Expirados: ${expiredCount}`
+  );
+  console.log(
+    `[metrics] ${JSON.stringify({
+      source: "consumer-android",
+      items_published: publishedCount,
+      items_expired: expiredCount,
+      publish_errors: publishErrors,
+      edit_errors: editErrors,
+    })}`
+  );
+
+  return {
+    publishedCount,
+    expiredCount,
+    queueProcessed: queue.length,
+    expiredProcessed: expiredQueue.length,
+  };
 }
 
 module.exports = { checkAndroidDeals };

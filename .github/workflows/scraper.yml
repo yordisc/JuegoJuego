@@ -1,0 +1,38 @@
+name: Producer Scraper Queues
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  produce-queues:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Android queues
+        env:
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_API_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
+        run: node scripts/github-android.js
+
+      - name: Build PC queues
+        env:
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_API_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
+        run: node scripts/github-pc.js

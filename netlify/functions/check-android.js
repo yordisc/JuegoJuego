@@ -57,11 +57,9 @@ exports.handler = async (event, context) => {
     console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log(
-      "📡 [DEBUG 3/4] Consultando y buscando ofertas de Android..."
-    );
-    await checkAndroidDeals(publishedGames);
-    console.log("   - Búsqueda finalizada.");
+    console.log("📡 [DEBUG 3/4] Procesando android_queue y android_expired...");
+    await checkAndroidDeals(store, publishedGames);
+    console.log("   - Colas Android procesadas.");
 
     // --- PASO 4: GUARDADO DE ESTADO ---
     console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
@@ -70,7 +68,7 @@ exports.handler = async (event, context) => {
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
     console.log("========================================");
-    return { statusCode: 200, body: "Búsqueda Android completada con éxito." };
+    return { statusCode: 200, body: "Consumo Android completado con éxito." };
   } catch (error) {
     console.error("❌ ERROR CRÍTICO EN ANDROID:");
     console.error(error);

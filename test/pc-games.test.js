@@ -1,106 +1,129 @@
-// test/pc-games.test.js
 const test = require("node:test");
 const assert = require("node:assert");
 const { checkPCGames } = require("../services/pc-games");
 
-// Variables de entorno falsas para las pruebas locales
 process.env.TELEGRAM_TOKEN = "test-token";
 process.env.CHANNEL_ID = "@testchannel";
 
-// Guardamos el comportamiento original por si lo necesitamos
 const originalFetch = global.fetch;
 
-test("🧪 Suite de Pruebas: Filtro de PC (GamerPower)", async (t) => {
-  // --- PREPARACIÓN DEL SIMULADOR (MOCK) ---
-  t.beforeEach(() => {
-    global.fetch = async (url, options) => {
-      // 1. Simulamos a Telegram diciendo "Mensaje recibido"
-      if (url && url.toString().includes("api.telegram.org")) {
-        return { ok: true, json: async () => ({ ok: true }) };
-      }
+function createStore(initial = {}) {
+  const data = { ...initial };
 
-      // 2. Simulamos a GamerPower (EL ARREGLO PRINCIPAL 🛡️)
-      if (url && url.toString().includes("gamerpower.com")) {
+  return {
+    get: async (key) => (key in data ? JSON.stringify(data[key]) : null),
+    setJSON: async (key, value) => {
+      data[key] = value;
+    },
+    snapshot: () => ({ ...data }),
+  };
+}
+
+test("Suite PC Consumer", async (t) => {
+  t.beforeEach(() => {
+    global.fetch = async (url) => {
+      if (url.includes("sendMessage")) {
         return {
-          ok: true, // Esto pasa el escudo `if (!response.ok)`
-          status: 200, // Simula un OK de HTTP
-          json: async () => [
-            {
-              id: 999,
-              title: "Mock PC Game",
-              platforms: "PC",
-              worth: "$19.99",
-              description: "Un juego de prueba",
-              open_giveaway_url: "https://test.com",
-            },
-          ],
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 333 } }),
         };
       }
 
-      // Si hay alguna otra petición extraña, devolvemos un OK genérico
-      return { ok: true };
+      if (url.includes("editMessageText")) {
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
+
+      return { ok: true, json: async () => ({ ok: true }) };
     };
   });
 
-  // Limpiamos el simulador al terminar cada prueba
   t.afterEach(() => {
     global.fetch = originalFetch;
   });
 
-  // --- LOS CASOS DE PRUEBA ---
+  await t.test("Publica nuevos items de pc_queue", async () => {
+    const store = createStore({
+      pc_queue: [
+        {
+          id: "999",
+          title: "Mock PC Game",
+          platforms: "PC",
+          worth: "$19.99",
+          description: "Un juego de prueba",
+          openGiveawayUrl: "https://test.com",
+        },
+      ],
+      pc_expired: [],
+    });
 
-  await t.test(
-    "✅ Caso 1: Debe publicar y guardar si el juego es nuevo",
-    async () => {
-      const publishedGames = []; // Empezamos con la memoria vacía
+    const publishedGames = [];
+    const result = await checkPCGames(store, publishedGames);
 
-      await checkPCGames(publishedGames);
+    assert.strictEqual(result.publishedCount, 1);
+    assert.deepStrictEqual(publishedGames[0], {
+      id: "999",
+      messageId: 333,
+    });
+  });
 
-      // Verificamos que el ID '999' del juego falso se haya guardado en la memoria
-      assert.strictEqual(
-        publishedGames.length,
-        1,
-        "El juego no se guardó en la memoria"
-      );
-      assert.strictEqual(
-        publishedGames[0],
-        "999",
-        "El ID guardado no es el correcto"
-      );
-    }
-  );
+  await t.test("No duplica IDs ya publicados", async () => {
+    const store = createStore({
+      pc_queue: [{ id: "999", title: "Dup" }],
+      pc_expired: [],
+    });
 
-  await t.test(
-    "🧠 Caso 2: NO debe publicar si el juego ya está en la memoria",
-    async () => {
-      // Empezamos con la memoria "recordando" el ID 999
-      const publishedGames = ["999"];
+    const publishedGames = [{ id: "999", messageId: 10 }];
+    const result = await checkPCGames(store, publishedGames);
 
-      await checkPCGames(publishedGames);
+    assert.strictEqual(result.publishedCount, 0);
+    assert.strictEqual(publishedGames.length, 1);
+  });
 
-      // Como el juego ya estaba, la memoria debería seguir teniendo exactamente 1 elemento (no debe duplicarlo)
-      assert.strictEqual(
-        publishedGames.length,
-        1,
-        "Se duplicó un juego que ya estaba en memoria"
-      );
-    }
-  );
+  await t.test("Procesa expirados y los elimina de memoria", async () => {
+    const store = createStore({
+      pc_queue: [],
+      pc_expired: [{ id: "999", messageId: 333 }],
+    });
 
-  await t.test(
-    "🛡️ Caso 3: Debe manejar errores de red limpiamente",
-    async () => {
-      // Para este caso específico, obligamos al simulador a lanzar un error 500 (Servidor Caído)
-      global.fetch = async () => {
-        return { ok: false, status: 500 };
-      };
+    const publishedGames = [{ id: "999", messageId: 333 }];
+    const result = await checkPCGames(store, publishedGames);
 
-      const publishedGames = [];
+    assert.strictEqual(result.expiredCount, 1);
+    assert.strictEqual(publishedGames.length, 0);
+  });
 
-      // Evaluamos que nuestro bloque try/catch en producción funcione y no rompa el bot
-      await assert.doesNotReject(async () => {
-        await checkPCGames(publishedGames);
-      }, "El bot colapsó por un error de red en lugar de atraparlo con el catch");
-    }
-  );
+  await t.test("Limpia pc_queue y pc_expired al final", async () => {
+    const store = createStore({
+      pc_queue: [{ id: "999" }],
+      pc_expired: [{ id: "111" }],
+    });
+
+    await checkPCGames(store, []);
+    const snapshot = store.snapshot();
+
+    assert.deepStrictEqual(snapshot.pc_queue, []);
+    assert.deepStrictEqual(snapshot.pc_expired, []);
+  });
+
+  await t.test("Re-encola item si Telegram falla al publicar", async () => {
+    global.fetch = async (url) => {
+      if (url.includes("sendMessage")) {
+        return { ok: false, status: 500, text: async () => "fail" };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      pc_queue: [{ id: "pc-retry", title: "Retry" }],
+      pc_expired: [],
+    });
+
+    const publishedGames = [];
+    await checkPCGames(store, publishedGames);
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(publishedGames.length, 0);
+    assert.strictEqual(snapshot.pc_queue.length, 1);
+    assert.strictEqual(snapshot.pc_queue[0].id, "pc-retry");
+  });
 });
