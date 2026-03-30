@@ -4,6 +4,11 @@ const KEY_PC_QUEUE = "pc_queue";
 const KEY_PC_EXPIRED = "pc_expired";
 const { requestWithRetry } = require("../utils/telegram");
 
+function readPositiveIntEnv(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function getPublishedGameId(entry) {
   if (typeof entry === "string") {
     return entry;
@@ -143,8 +148,16 @@ async function markPcExpired(messageId) {
   );
 }
 
-async function checkPCGames(store, publishedGames = []) {
+async function checkPCGames(store, publishedGames = [], options = {}) {
   console.log("[pc-consumer] Procesando colas PC...");
+
+  const processQueue = options.processQueue !== false;
+  const processExpired = options.processExpired !== false;
+
+  const maxPublishesPerRun = readPositiveIntEnv(
+    process.env.PC_MAX_PUBLISH_PER_RUN,
+    15
+  );
 
   const queue = dedupeById(await readJsonArray(store, KEY_PC_QUEUE));
   const expiredQueue = dedupeById(await readJsonArray(store, KEY_PC_EXPIRED));
@@ -160,71 +173,28 @@ async function checkPCGames(store, publishedGames = []) {
   const retryQueue = [];
   const retryExpiredQueue = [];
 
-  for (let index = 0; index < queue.length; index += 1) {
-    const item = queue[index];
-    const id = getPublishedGameId(item);
-    if (!id || publishedIds.has(id)) {
-      continue;
-    }
-
-    try {
-      const telegramResponse = await sendPcPublication(item);
-
-      if (!telegramResponse.ok) {
-        const details = await readTelegramError(telegramResponse);
-        console.error("[pc-consumer] Error publicando:", details.text);
-
-        if (telegramResponse.status === 429) {
-          const retryNote =
-            details.retryAfterSeconds != null
-              ? `reintentar en ~${details.retryAfterSeconds}s`
-              : "reintentar en la siguiente corrida";
-          console.warn(
-            `[pc-consumer] Rate limit detectado (${retryNote}). Se difiere el resto de la cola.`
-          );
-
-          retryQueue.push(...queue.slice(index));
-          publishErrors += 1;
-          break;
-        }
-
-        publishErrors += 1;
-        retryQueue.push(item);
+  if (processQueue) {
+    for (let index = 0; index < queue.length; index += 1) {
+      const item = queue[index];
+      const id = getPublishedGameId(item);
+      if (!id || publishedIds.has(id)) {
         continue;
       }
 
-      const payload = await telegramResponse.json().catch(() => ({}));
-      const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
+      if (publishedCount >= maxPublishesPerRun) {
+        retryQueue.push(...queue.slice(index));
+        console.info(
+          `[pc-consumer] Limite por corrida alcanzado (${maxPublishesPerRun}). Se difiere el resto de la cola.`
+        );
+        break;
+      }
 
-      publishedGames.push({ id, messageId });
-      publishedIds.add(id);
-      publishedCount += 1;
-    } catch (err) {
-      console.error("[pc-consumer] Error de red publicando:", err.message);
-      publishErrors += 1;
-      retryQueue.push(item);
-    }
-  }
-
-  for (let index = 0; index < expiredQueue.length; index += 1) {
-    const item = expiredQueue[index];
-    const id = getPublishedGameId(item);
-    if (!id) {
-      continue;
-    }
-
-    const found = publishedGames.find((entry) => getPublishedGameId(entry) === id);
-    const messageId = getPublishedMessageId(found) ?? getPublishedMessageId(item);
-
-    if (messageId != null) {
       try {
-        const telegramResponse = await markPcExpired(messageId);
+        const telegramResponse = await sendPcPublication(item);
+
         if (!telegramResponse.ok) {
           const details = await readTelegramError(telegramResponse);
-          console.error(
-            "[pc-consumer] Error eliminando expirado:",
-            details.text
-          );
+          console.error("[pc-consumer] Error publicando:", details.text);
 
           if (telegramResponse.status === 429) {
             const retryNote =
@@ -232,36 +202,96 @@ async function checkPCGames(store, publishedGames = []) {
                 ? `reintentar en ~${details.retryAfterSeconds}s`
                 : "reintentar en la siguiente corrida";
             console.warn(
-              `[pc-consumer] Rate limit en expirados (${retryNote}). Se difiere el resto.`
+              `[pc-consumer] Rate limit detectado (${retryNote}). Se difiere el resto de la cola.`
             );
 
-            retryExpiredQueue.push(...expiredQueue.slice(index));
-            deleteErrors += 1;
+            retryQueue.push(...queue.slice(index));
+            publishErrors += 1;
             break;
           }
 
+          publishErrors += 1;
+          retryQueue.push(item);
+          continue;
+        }
+
+        const payload = await telegramResponse.json().catch(() => ({}));
+        const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
+
+        publishedGames.push({ id, messageId });
+        publishedIds.add(id);
+        publishedCount += 1;
+      } catch (err) {
+        console.error("[pc-consumer] Error de red publicando:", err.message);
+        publishErrors += 1;
+        retryQueue.push(item);
+      }
+    }
+  }
+
+  if (processExpired) {
+    for (let index = 0; index < expiredQueue.length; index += 1) {
+      const item = expiredQueue[index];
+      const id = getPublishedGameId(item);
+      if (!id) {
+        continue;
+      }
+
+      const found = publishedGames.find((entry) => getPublishedGameId(entry) === id);
+      const messageId = getPublishedMessageId(found) ?? getPublishedMessageId(item);
+
+      if (messageId != null) {
+        try {
+          const telegramResponse = await markPcExpired(messageId);
+          if (!telegramResponse.ok) {
+            const details = await readTelegramError(telegramResponse);
+            console.error(
+              "[pc-consumer] Error eliminando expirado:",
+              details.text
+            );
+
+            if (telegramResponse.status === 429) {
+              const retryNote =
+                details.retryAfterSeconds != null
+                  ? `reintentar en ~${details.retryAfterSeconds}s`
+                  : "reintentar en la siguiente corrida";
+              console.warn(
+                `[pc-consumer] Rate limit en expirados (${retryNote}). Se difiere el resto.`
+              );
+
+              retryExpiredQueue.push(...expiredQueue.slice(index));
+              deleteErrors += 1;
+              break;
+            }
+
+            deleteErrors += 1;
+            retryExpiredQueue.push(item);
+            continue;
+          }
+        } catch (err) {
+          console.error("[pc-consumer] Error de red eliminando expirado:", err.message);
           deleteErrors += 1;
           retryExpiredQueue.push(item);
           continue;
         }
-      } catch (err) {
-        console.error("[pc-consumer] Error de red eliminando expirado:", err.message);
-        deleteErrors += 1;
-        retryExpiredQueue.push(item);
-        continue;
       }
-    }
 
-    const removeIndex = publishedGames.findIndex((entry) => getPublishedGameId(entry) === id);
-    if (removeIndex >= 0) {
-      publishedGames.splice(removeIndex, 1);
-      publishedIds.delete(id);
-      expiredCount += 1;
+      const removeIndex = publishedGames.findIndex((entry) => getPublishedGameId(entry) === id);
+      if (removeIndex >= 0) {
+        publishedGames.splice(removeIndex, 1);
+        publishedIds.delete(id);
+        expiredCount += 1;
+      }
     }
   }
 
-  await writeQueue(store, KEY_PC_QUEUE, dedupeById(retryQueue));
-  await writeQueue(store, KEY_PC_EXPIRED, dedupeById(retryExpiredQueue));
+  if (processQueue) {
+    await writeQueue(store, KEY_PC_QUEUE, dedupeById(retryQueue));
+  }
+
+  if (processExpired) {
+    await writeQueue(store, KEY_PC_EXPIRED, dedupeById(retryExpiredQueue));
+  }
 
   console.log(`[pc-consumer] Publicados: ${publishedCount} | Expirados: ${expiredCount}`);
   console.log(

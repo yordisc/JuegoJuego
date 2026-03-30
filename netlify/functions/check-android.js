@@ -62,9 +62,12 @@ exports.handler = async (event, context) => {
     console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log("📡 [DEBUG 3/4] Procesando android_queue y android_expired...");
-    await checkAndroidDeals(store, publishedGames);
-    console.log("   - Colas Android procesadas.");
+    console.log("📡 [DEBUG 3/4] Procesando solo android_queue...");
+    await checkAndroidDeals(store, publishedGames, {
+      processQueue: true,
+      processExpired: false,
+    });
+    console.log("   - Cola Android procesada (publicaciones).");
 
     // --- PASO 4: GUARDADO DE ESTADO ---
     console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");

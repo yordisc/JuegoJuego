@@ -59,8 +59,10 @@ El scraping pesado ya no corre dentro de Netlify Functions.
    - Ejecuta `scripts/github-android.js` y `scripts/github-pc.js`.
    - Escribe colas en Blobs: `android_queue`, `android_expired`, `pc_queue`, `pc_expired`.
 2. **Consumidor (Netlify Functions):**
-   - Lee colas, publica/edita en Telegram y actualiza memoria principal.
-   - Limpia colas al finalizar cada corrida.
+
+- `check-android` y `check-pc` publican novedades desde sus colas.
+- `clean-expired` elimina en Telegram los juegos expirados de Android y PC.
+- Cada corrida limpia sus colas procesadas al finalizar.
 
 Métricas mínimas en logs:
 
@@ -87,31 +89,10 @@ Pasos:
 3. Ejecutar funciones consumidoras en Netlify (scheduler o trigger manual).
 4. Verificar en Telegram:
    - Publicaciones nuevas.
-   - Mensajes marcados como expirados.
+
+- Mensajes expirados eliminados del canal.
+
 5. Revisar logs buscando líneas `[metrics]`.
-
----
-
-## 🔐 Variables de Entorno
-
-Existe plantilla base en [.env.example](.env.example).
-
-Variables requeridas:
-
-- Productor (GitHub Actions / Blobs):
-  - NETLIFY_SITE_ID
-  - NETLIFY_API_TOKEN
-- Consumidor (Netlify / Telegram):
-  - TELEGRAM_TOKEN
-  - CHANNEL_ID
-
-Configuracion local rapida:
-
-1. Copia .env.example a .env.
-2. Completa valores reales.
-3. Ejecuta:
-   - npm run smoke:verify
-   - npm run smoke:verify:strict
 
 ---
 

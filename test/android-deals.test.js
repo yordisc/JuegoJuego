@@ -131,4 +131,35 @@ test("Suite Android Consumer", async (t) => {
     assert.strictEqual(snapshot.android_queue.length, 1);
     assert.strictEqual(snapshot.android_queue[0].id, "com.retry.android");
   });
+
+  await t.test("Modo solo expirados no publica android_queue", async () => {
+    const calledUrls = [];
+    global.fetch = async (url) => {
+      calledUrls.push(url);
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      android_queue: [{ id: "com.skip.publish", title: "Skip" }],
+      android_expired: [{ id: "com.old.app", messageId: 222 }],
+    });
+
+    const publishedGames = [{ id: "com.old.app", messageId: 222 }];
+    const result = await checkAndroidDeals(store, publishedGames, {
+      processQueue: false,
+      processExpired: true,
+    });
+
+    const snapshot = store.snapshot();
+    assert.strictEqual(result.publishedCount, 0);
+    assert.strictEqual(result.expiredCount, 1);
+    assert.ok(
+      calledUrls.every(
+        (url) => !url.includes("sendMessage") && !url.includes("sendPhoto")
+      )
+    );
+    assert.ok(calledUrls.some((url) => url.includes("deleteMessage")));
+    assert.strictEqual(snapshot.android_queue.length, 1);
+    assert.strictEqual(snapshot.android_queue[0].id, "com.skip.publish");
+  });
 });

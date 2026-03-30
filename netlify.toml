@@ -11,3 +11,8 @@
 [functions.check-pc]
   # Ejecutar a las 10:00 AM y a las 10:00 PM todos los días
   schedule = "0 10,22 * * *"
+
+# Microservicio 3: Limpieza de expirados (Android + PC)
+[functions.clean-expired]
+  # Ejecutar cada 30 minutos
+  schedule = "*/30 * * * *"

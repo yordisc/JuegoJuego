@@ -133,4 +133,31 @@ test("Suite PC Consumer", async (t) => {
     assert.strictEqual(snapshot.pc_queue.length, 1);
     assert.strictEqual(snapshot.pc_queue[0].id, "pc-retry");
   });
+
+  await t.test("Modo solo expirados no publica pc_queue", async () => {
+    const calledUrls = [];
+    global.fetch = async (url) => {
+      calledUrls.push(url);
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      pc_queue: [{ id: "will-not-publish", title: "Skip" }],
+      pc_expired: [{ id: "old-1", messageId: 333 }],
+    });
+
+    const publishedGames = [{ id: "old-1", messageId: 333 }];
+    const result = await checkPCGames(store, publishedGames, {
+      processQueue: false,
+      processExpired: true,
+    });
+
+    const snapshot = store.snapshot();
+    assert.strictEqual(result.publishedCount, 0);
+    assert.strictEqual(result.expiredCount, 1);
+    assert.ok(calledUrls.every((url) => !url.includes("sendMessage")));
+    assert.ok(calledUrls.some((url) => url.includes("deleteMessage")));
+    assert.strictEqual(snapshot.pc_queue.length, 1);
+    assert.strictEqual(snapshot.pc_queue[0].id, "will-not-publish");
+  });
 });

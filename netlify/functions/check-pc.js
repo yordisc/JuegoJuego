@@ -59,9 +59,12 @@ exports.handler = async (event, context) => {
     console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
     // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log("📡 [DEBUG 3/4] Procesando pc_queue y pc_expired...");
-    await checkPCGames(store, publishedGames);
-    console.log("   - Colas PC procesadas.");
+    console.log("📡 [DEBUG 3/4] Procesando solo pc_queue...");
+    await checkPCGames(store, publishedGames, {
+      processQueue: true,
+      processExpired: false,
+    });
+    console.log("   - Cola PC procesada (publicaciones).");
 
     // --- PASO 4: GUARDADO DE ESTADO ---
     console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
