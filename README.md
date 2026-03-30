@@ -68,7 +68,7 @@ Métricas mínimas en logs:
 - `items_published`
 - `items_expired`
 - `publish_errors`
-- `edit_errors`
+- `delete_errors`
 
 ---
 
@@ -179,7 +179,7 @@ npm run blobs:show
 4. Verificar consumidor en logs Netlify:
 
 - lineas con `[metrics]`.
-- `publish_errors` y `edit_errors`.
+- `publish_errors` y `delete_errors`.
 
 ---
 

@@ -277,7 +277,7 @@ async function buildAndroidQueues() {
       items_produced: queue.length,
       items_expired: expired.length,
       publish_errors: 0,
-      edit_errors: 0,
+        delete_errors: 0,
     })}`
   );
 }

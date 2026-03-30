@@ -29,7 +29,7 @@ test("Suite Android Consumer", async (t) => {
         };
       }
 
-      if (url.includes("editMessageCaption")) {
+      if (url.includes("deleteMessage")) {
         return { ok: true, json: async () => ({ ok: true }) };
       }
 
@@ -78,6 +78,12 @@ test("Suite Android Consumer", async (t) => {
   });
 
   await t.test("Procesa expirados y los elimina de memoria", async () => {
+    const calledUrls = [];
+    global.fetch = async (url) => {
+      calledUrls.push(url);
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
     const store = createStore({
       android_queue: [],
       android_expired: [{ id: "com.old.app", messageId: 222 }],
@@ -88,6 +94,7 @@ test("Suite Android Consumer", async (t) => {
 
     assert.strictEqual(result.expiredCount, 1);
     assert.strictEqual(publishedGames.length, 0);
+    assert.ok(calledUrls.some((url) => url.includes("deleteMessage")));
   });
 
   await t.test("Limpia android_queue y android_expired al final", async () => {

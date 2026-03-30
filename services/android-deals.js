@@ -2,7 +2,6 @@
 
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
-const EXPIRED_MARK = "[❌ OFERTA EXPIRADA]";
 const { requestWithRetry } = require("../utils/telegram");
 
 function getPublishedGameId(entry) {
@@ -51,6 +50,36 @@ async function readJsonArray(store, key) {
 
 async function writeQueue(store, key, data) {
   await store.setJSON(key, Array.isArray(data) ? data : []);
+}
+
+async function readTelegramError(response) {
+  const fallback = {
+    text: `HTTP ${response.status}`,
+    retryAfterSeconds: null,
+  };
+
+  try {
+    const text = await response.text();
+    let retryAfterSeconds = null;
+
+    try {
+      const parsed = JSON.parse(text);
+      const rawRetryAfter =
+        parsed && parsed.parameters ? parsed.parameters.retry_after : null;
+      if (Number.isInteger(rawRetryAfter) && rawRetryAfter > 0) {
+        retryAfterSeconds = rawRetryAfter;
+      }
+    } catch (parseErr) {
+      // Si no es JSON valido, mantenemos solo el texto para logging.
+    }
+
+    return {
+      text: text || fallback.text,
+      retryAfterSeconds,
+    };
+  } catch (err) {
+    return fallback;
+  }
 }
 
 function dedupeById(items) {
@@ -118,12 +147,10 @@ async function markAndroidExpired(messageId) {
   const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
 
   return requestWithRetry(
-    `${telegramBase}/editMessageCaption`,
+    `${telegramBase}/deleteMessage`,
     {
       chat_id: process.env.CHANNEL_ID,
       message_id: messageId,
-      caption: `${EXPIRED_MARK}\n\nEsta oferta ya no esta disponible.`,
-      parse_mode: "Markdown",
     }
   );
 }
@@ -131,8 +158,8 @@ async function markAndroidExpired(messageId) {
 async function checkAndroidDeals(store, publishedGames = []) {
   console.log("[android-consumer] Procesando colas Android...");
 
-  const queue = await readJsonArray(store, KEY_ANDROID_QUEUE);
-  const expiredQueue = await readJsonArray(store, KEY_ANDROID_EXPIRED);
+  const queue = dedupeById(await readJsonArray(store, KEY_ANDROID_QUEUE));
+  const expiredQueue = dedupeById(await readJsonArray(store, KEY_ANDROID_EXPIRED));
 
   const publishedIds = new Set(
     publishedGames.map(getPublishedGameId).filter(Boolean)
@@ -141,11 +168,12 @@ async function checkAndroidDeals(store, publishedGames = []) {
   let publishedCount = 0;
   let expiredCount = 0;
   let publishErrors = 0;
-  let editErrors = 0;
+  let deleteErrors = 0;
   const retryQueue = [];
   const retryExpiredQueue = [];
 
-  for (const item of dedupeById(queue)) {
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index];
     const id = getPublishedGameId(item);
     if (!id || publishedIds.has(id)) {
       continue;
@@ -155,10 +183,26 @@ async function checkAndroidDeals(store, publishedGames = []) {
       const telegramResponse = await sendAndroidPublication(item);
 
       if (!telegramResponse.ok) {
+        const details = await readTelegramError(telegramResponse);
         console.error(
           "[android-consumer] Error publicando:",
-          await telegramResponse.text()
+          details.text
         );
+
+        if (telegramResponse.status === 429) {
+          const retryNote =
+            details.retryAfterSeconds != null
+              ? `reintentar en ~${details.retryAfterSeconds}s`
+              : "reintentar en la siguiente corrida";
+          console.warn(
+            `[android-consumer] Rate limit detectado (${retryNote}). Se difiere el resto de la cola.`
+          );
+
+          retryQueue.push(...queue.slice(index));
+          publishErrors += 1;
+          break;
+        }
+
         publishErrors += 1;
         retryQueue.push(item);
         continue;
@@ -177,7 +221,8 @@ async function checkAndroidDeals(store, publishedGames = []) {
     }
   }
 
-  for (const item of dedupeById(expiredQueue)) {
+  for (let index = 0; index < expiredQueue.length; index += 1) {
+    const item = expiredQueue[index];
     const id = getPublishedGameId(item);
     if (!id) {
       continue;
@@ -190,25 +235,41 @@ async function checkAndroidDeals(store, publishedGames = []) {
       try {
         const telegramResponse = await markAndroidExpired(messageId);
         if (!telegramResponse.ok) {
+          const details = await readTelegramError(telegramResponse);
           console.error(
-            "[android-consumer] Error editando expirado:",
-            await telegramResponse.text()
+            "[android-consumer] Error eliminando expirado:",
+            details.text
           );
-          editErrors += 1;
+
+          if (telegramResponse.status === 429) {
+            const retryNote =
+              details.retryAfterSeconds != null
+                ? `reintentar en ~${details.retryAfterSeconds}s`
+                : "reintentar en la siguiente corrida";
+            console.warn(
+              `[android-consumer] Rate limit en expirados (${retryNote}). Se difiere el resto.`
+            );
+
+            retryExpiredQueue.push(...expiredQueue.slice(index));
+            deleteErrors += 1;
+            break;
+          }
+
+          deleteErrors += 1;
           retryExpiredQueue.push(item);
           continue;
         }
       } catch (err) {
-        console.error("[android-consumer] Error de red editando expirado:", err.message);
-        editErrors += 1;
+        console.error("[android-consumer] Error de red eliminando expirado:", err.message);
+        deleteErrors += 1;
         retryExpiredQueue.push(item);
         continue;
       }
     }
 
-    const index = publishedGames.findIndex((entry) => getPublishedGameId(entry) === id);
-    if (index >= 0) {
-      publishedGames.splice(index, 1);
+    const removeIndex = publishedGames.findIndex((entry) => getPublishedGameId(entry) === id);
+    if (removeIndex >= 0) {
+      publishedGames.splice(removeIndex, 1);
       publishedIds.delete(id);
       expiredCount += 1;
     }
@@ -226,7 +287,7 @@ async function checkAndroidDeals(store, publishedGames = []) {
       items_published: publishedCount,
       items_expired: expiredCount,
       publish_errors: publishErrors,
-      edit_errors: editErrors,
+      delete_errors: deleteErrors,
     })}`
   );
 

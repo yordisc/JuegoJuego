@@ -163,7 +163,7 @@ async function main() {
       items_published: 0,
       items_expired: 0,
       publish_errors: 0,
-      edit_errors: hasBlockingIssue ? 1 : 0,
+      delete_errors: hasBlockingIssue ? 1 : 0,
     })}`
   );
 

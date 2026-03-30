@@ -29,7 +29,7 @@ test("Suite PC Consumer", async (t) => {
         };
       }
 
-      if (url.includes("editMessageText")) {
+      if (url.includes("deleteMessage")) {
         return { ok: true, json: async () => ({ ok: true }) };
       }
 
@@ -80,6 +80,12 @@ test("Suite PC Consumer", async (t) => {
   });
 
   await t.test("Procesa expirados y los elimina de memoria", async () => {
+    const calledUrls = [];
+    global.fetch = async (url) => {
+      calledUrls.push(url);
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
     const store = createStore({
       pc_queue: [],
       pc_expired: [{ id: "999", messageId: 333 }],
@@ -90,6 +96,7 @@ test("Suite PC Consumer", async (t) => {
 
     assert.strictEqual(result.expiredCount, 1);
     assert.strictEqual(publishedGames.length, 0);
+    assert.ok(calledUrls.some((url) => url.includes("deleteMessage")));
   });
 
   await t.test("Limpia pc_queue y pc_expired al final", async () => {
