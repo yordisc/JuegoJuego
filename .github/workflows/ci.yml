@@ -25,11 +25,12 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24" # Usamos una versión reciente que soporta fetch nativo
+          cache: "npm"
 
       # Paso C: Instalar las dependencias (el @netlify/blobs)
       - name: 📦 Instalar dependencias
         # Usamos 'npm ci' en lugar de 'npm install' porque es más rápido y estricto para entornos en la nube
-        run: npm install
+        run: npm ci
 
       # Paso D: El momento de la verdad
       - name: 🧪 Ejecutar Tests Unitarios
