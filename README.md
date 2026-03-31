@@ -140,7 +140,12 @@ npm run blobs:show
 
 ### Funciones Manuales en Netlify
 
-Estas funciones **no tienen schedule**: solo se ejecutan cuando las disparas manualmente.
+Estas funciones se pueden disparar manualmente cuando quieras.
+
+Adicionalmente, se programaron dos ejecuciones semanales automaticas:
+
+- `manual-run-all`: lunes 01:00 UTC (primer dia de la semana a primera hora).
+- `manual-status`: lunes 01:20 UTC (snapshot posterior al mantenimiento).
 
 - `manual-status`: consulta resumen de memoria/colas/expirados/backlog antes de ejecutar limpieza.
 - `manual-clean-memory`: limpia toda la memoria operativa (publicados, colas y expirados).

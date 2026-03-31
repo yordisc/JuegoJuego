@@ -24,3 +24,12 @@
 [functions.clean-duplicates]
   # Ejecutar 1 vez al día a las 3:00 AM UTC
   schedule = "0 3 * * *"
+
+# Mantenimiento semanal (manual functions programadas)
+[functions.manual-run-all]
+  # Primer dia de la semana (lunes) a primera hora: 01:00 UTC
+  schedule = "0 1 * * 1"
+
+[functions.manual-status]
+  # Snapshot semanal posterior al mantenimiento: 01:20 UTC
+  schedule = "20 1 * * 1"
