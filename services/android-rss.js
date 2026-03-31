@@ -2,6 +2,10 @@ const KEY_ANDROID_MEMORY = "published_games_android";
 const KEY_ANDROID_QUEUE = "android_queue";
 const DEFAULT_FEED_URL = "https://www.reddit.com/r/googleplaydeals/new.rss";
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function createRssParserInstance() {
   let Parser;
   try {
@@ -222,18 +226,37 @@ function collectItemAppIds(item) {
   return Array.from(ids);
 }
 
-function buildQueueItem(item, appId, discoveredAt) {
-  const title =
+function buildQueueItem(item, appId, discoveredAt, details = null) {
+  const detailTitle =
+    details && typeof details.title === "string" && details.title.trim()
+      ? details.title.trim()
+      : "";
+  const feedTitle =
     typeof item.title === "string" && item.title.trim()
       ? item.title.trim()
-      : appId;
+      : "";
+  const title = detailTitle || feedTitle || appId;
+
+  const icon =
+    details && typeof details.icon === "string" && details.icon.trim()
+      ? details.icon.trim()
+      : null;
+
+  const url =
+    details && typeof details.url === "string" && details.url.trim()
+      ? details.url.trim()
+      : `https://play.google.com/store/apps/details?id=${appId}`;
+
+  const score = details && Number.isFinite(details.score)
+    ? details.score
+    : null;
 
   return {
     id: appId,
     title,
-    icon: null,
-    url: `https://play.google.com/store/apps/details?id=${appId}`,
-    score: null,
+    icon,
+    url,
+    score,
     source: "reddit-rss",
     discoveredAt,
   };
@@ -259,6 +282,101 @@ function readRatio(value, fallback) {
   }
 
   return parsed;
+}
+
+function parseMoneyToNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.replace(/[^\d.,-]/g, "").replace(",", ".");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+}
+
+function isCurrentlyFree(details) {
+  if (details && details.free === true) {
+    return true;
+  }
+
+  const price = parseMoneyToNumber(details ? details.price : 0);
+  if (price === 0) {
+    return true;
+  }
+
+  const priceText = (details && details.priceText ? details.priceText : "")
+    .toString()
+    .toLowerCase();
+
+  return priceText.includes("free") || priceText.includes("gratis");
+}
+
+function isGameCategory(details) {
+  if (!details || typeof details !== "object") {
+    return false;
+  }
+
+  const genreId = String(details.genreId || "").toUpperCase();
+  if (genreId.startsWith("GAME")) {
+    return true;
+  }
+
+  const genre = String(details.genre || "").toLowerCase();
+  return genre.includes("game") || genre.includes("juego");
+}
+
+function isQualifiedFreeGame(details) {
+  if (!isGameCategory(details)) {
+    return false;
+  }
+
+  const originalPrice = parseMoneyToNumber(details ? details.originalPrice : 0);
+  if (originalPrice <= 0) {
+    return false;
+  }
+
+  return isCurrentlyFree(details);
+}
+
+let gplayModulePromise = null;
+
+async function getGooglePlayClient() {
+  if (!gplayModulePromise) {
+    gplayModulePromise = import("google-play-scraper")
+      .then((moduleRef) => moduleRef.default || moduleRef)
+      .catch((error) => {
+        gplayModulePromise = null;
+        const wrapped = new Error(
+          "No se encontro 'google-play-scraper'. Instala dependencias con npm install para validar juegos gratis del RSS."
+        );
+        wrapped.cause = error;
+        throw wrapped;
+      });
+  }
+
+  return gplayModulePromise;
+}
+
+async function resolveDetailsFetcher(options = {}) {
+  if (typeof options.detailsFetcher === "function") {
+    return options.detailsFetcher;
+  }
+
+  const gplay = await getGooglePlayClient();
+  const country = options.country || process.env.ANDROID_RSS_COUNTRY || "us";
+  const lang = options.lang || process.env.ANDROID_RSS_LANG || "es";
+
+  return async function fetchDetails(appId) {
+    return gplay.app({
+      appId,
+      country,
+      lang,
+    });
+  };
 }
 
 function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], options = {}) {
@@ -380,6 +498,11 @@ async function buildAndroidRssQueue(store, options = {}) {
   const feed = options.feed
     || (await (options.parser || createRssParserInstance()).parseURL(feedUrl));
   const feedItems = Array.isArray(feed && feed.items) ? feed.items : [];
+  const detailsFetcher = await resolveDetailsFetcher(options);
+  const detailsDelayMs = readPositiveInt(
+    options.detailsDelayMs,
+    readPositiveInt(process.env.ANDROID_RSS_DETAILS_DELAY_MS, 250)
+  );
 
   const legacyMemory = await readJsonArray(store, KEY_ANDROID_MEMORY);
   const publishedGames = normalizeList(legacyMemory, normalizeMemoryEntry);
@@ -395,17 +518,60 @@ async function buildAndroidRssQueue(store, options = {}) {
   const discoveredAt = Date.now();
   const newItems = [];
   const feedActiveIds = new Set();
+  const detailsCache = new Map();
+  let detailsRequests = 0;
+  let detailsFailures = 0;
+
+  async function getCandidateData(appId) {
+    if (detailsCache.has(appId)) {
+      return detailsCache.get(appId);
+    }
+
+    detailsRequests += 1;
+    try {
+      const details = await detailsFetcher(appId);
+      const candidateData = {
+        details,
+        qualifies: isQualifiedFreeGame(details),
+      };
+
+      detailsCache.set(appId, candidateData);
+
+      if (detailsDelayMs > 0) {
+        await sleep(detailsDelayMs);
+      }
+
+      return candidateData;
+    } catch (err) {
+      detailsFailures += 1;
+      console.warn(
+        `[producer-android-rss] No se pudo validar ${appId} en Play Store: ${err.message}`
+      );
+
+      const candidateData = {
+        details: null,
+        qualifies: false,
+      };
+      detailsCache.set(appId, candidateData);
+      return candidateData;
+    }
+  }
 
   for (const item of feedItems) {
     const appIds = collectItemAppIds(item);
     for (const appId of appIds) {
+      const candidate = await getCandidateData(appId);
+      if (!candidate.qualifies) {
+        continue;
+      }
+
       feedActiveIds.add(appId);
 
       if (knownIds.has(appId)) {
         continue;
       }
 
-      newItems.push(buildQueueItem(item, appId, discoveredAt));
+      newItems.push(buildQueueItem(item, appId, discoveredAt, candidate.details));
       knownIds.add(appId);
 
       if (newItems.length >= maxItems) {
@@ -422,6 +588,9 @@ async function buildAndroidRssQueue(store, options = {}) {
   await writeJsonArray(store, KEY_ANDROID_QUEUE, nextQueue);
 
   console.log(`[producer-android-rss] feed items leidos: ${feedItems.length}`);
+  console.log(`[producer-android-rss] candidatos con detalles consultados: ${detailsRequests}`);
+  console.log(`[producer-android-rss] validaciones fallidas: ${detailsFailures}`);
+  console.log(`[producer-android-rss] juegos gratis validados: ${feedActiveIds.size}`);
   console.log(`[producer-android-rss] queue previo: ${existingQueue.length}`);
   console.log(`[producer-android-rss] nuevos agregados: ${newItems.length}`);
   console.log(`[producer-android-rss] queue final: ${nextQueue.length}`);
@@ -432,6 +601,8 @@ async function buildAndroidRssQueue(store, options = {}) {
       items_expired: 0,
       publish_errors: 0,
       delete_errors: 0,
+      details_requests: detailsRequests,
+      details_failures: detailsFailures,
     })}`
   );
 
@@ -442,6 +613,8 @@ async function buildAndroidRssQueue(store, options = {}) {
     queueBefore: existingQueue.length,
     queueAfter: nextQueue.length,
     added: newItems.length,
+    detailsRequests,
+    detailsFailures,
   };
 }
 

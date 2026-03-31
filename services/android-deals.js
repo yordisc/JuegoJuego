@@ -155,11 +155,27 @@ async function markAndroidExpired(messageId) {
   );
 }
 
+function readPositiveIntEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
 async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   console.log("[android-consumer] Procesando colas Android...");
 
   const processQueue = options.processQueue !== false;
   const processExpired = options.processExpired !== false;
+  const maxPublishPerRun = readPositiveIntEnv("ANDROID_MAX_PUBLISH_PER_RUN", 18);
+  const maxDeletePerRun = readPositiveIntEnv("ANDROID_MAX_DELETE_PER_RUN", 18);
 
   const queue = dedupeById(await readJsonArray(store, KEY_ANDROID_QUEUE));
   const expiredQueue = dedupeById(await readJsonArray(store, KEY_ANDROID_EXPIRED));
@@ -172,11 +188,20 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   let expiredCount = 0;
   let publishErrors = 0;
   let deleteErrors = 0;
+  let deleteAttempts = 0;
   const retryQueue = [];
   const retryExpiredQueue = [];
 
   if (processQueue) {
     for (let index = 0; index < queue.length; index += 1) {
+      if (publishedCount >= maxPublishPerRun) {
+        console.warn(
+          `[android-consumer] Limite por corrida alcanzado (${maxPublishPerRun}). Se difiere el resto de la cola.`
+        );
+        retryQueue.push(...queue.slice(index));
+        break;
+      }
+
       const item = queue[index];
       const id = getPublishedGameId(item);
       if (!id || publishedIds.has(id)) {
@@ -238,6 +263,15 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
       const messageId = getPublishedMessageId(found) ?? getPublishedMessageId(item);
 
       if (messageId != null) {
+        if (deleteAttempts >= maxDeletePerRun) {
+          console.warn(
+            `[android-consumer] Limite de borrados por corrida alcanzado (${maxDeletePerRun}). Se difiere el resto de expirados.`
+          );
+          retryExpiredQueue.push(...expiredQueue.slice(index));
+          break;
+        }
+
+        deleteAttempts += 1;
         try {
           const telegramResponse = await markAndroidExpired(messageId);
           if (!telegramResponse.ok) {

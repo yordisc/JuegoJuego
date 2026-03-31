@@ -62,10 +62,12 @@ El scraping pesado ya no corre dentro de Netlify Functions.
 2. **Productor RSS (GitHub Actions):**
 
 - Ejecuta `scripts/github-android-rss.js` cada 4 horas.
-- Lee `https://www.reddit.com/r/googleplaydeals/new.rss` y agrega solo apps nuevas a `android_queue`.
+- Lee `https://www.reddit.com/r/googleplaydeals/new.rss` y agrega solo juegos gratis nuevos a `android_queue`.
+- Cada ID del feed se valida en Google Play (`google-play-scraper`): categoria de juego (`GAME_*`) + precio actual gratis + precio original mayor a 0.
 - Deduplica contra `published_games_android` y contra la cola ya existente.
 - En la misma corrida infiere expirados desde el feed, llena `android_expired` y elimina mensajes expirados en Telegram.
 - Incluye guardas anti-falsos positivos: `ANDROID_RSS_MIN_ACTIVE_IDS`, `ANDROID_RSS_EXPIRATION_GRACE_HOURS` y `ANDROID_RSS_MAX_EXPIRE_RATIO`.
+- Incluye control de ritmo para validacion de detalles: `ANDROID_RSS_DETAILS_DELAY_MS`.
 
 3. **Consumidor (Netlify Functions):**
 
@@ -136,6 +138,41 @@ npm run blobs:clear-queues
 npm run blobs:show
 ```
 
+### Funciones Manuales en Netlify
+
+Estas funciones **no tienen schedule**: solo se ejecutan cuando las disparas manualmente.
+
+- `manual-status`: consulta resumen de memoria/colas/expirados/backlog antes de ejecutar limpieza.
+- `manual-clean-memory`: limpia toda la memoria operativa (publicados, colas y expirados).
+- `manual-clean-telegram`: borra mensajes rastreados del bot en Telegram y sincroniza memoria.
+- `manual-run-all`: ejecuta esta secuencia completa:
+  1. `manual-clean-memory`
+  2. `manual-clean-telegram`
+  3. `check-android`
+  4. `check-pc`
+  5. `clean-expired`
+  6. `clean-duplicates`
+
+Opcional: proteger con clave manual.
+
+- Define `MANUAL_FUNCTION_KEY` en variables de entorno de Netlify.
+- En la llamada HTTP agrega header `x-manual-key: <tu_clave>`.
+
+Ejemplo:
+
+```bash
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status?includeSamples=true&sampleSize=5" \
+  -H "x-manual-key: <tu_clave>"
+
+curl -X POST "https://<tu-sitio>.netlify.app/.netlify/functions/manual-run-all" \
+  -H "x-manual-key: <tu_clave>" \
+  -H "content-type: application/json" \
+  -d '{"stopOnError":true}'
+```
+
 ### Recuperar memoria corrupta
 
 Normaliza memoria heredada/mixta a formato estable `{ id, messageId }`:
@@ -184,6 +221,9 @@ npm run blobs:show
 
 - Problema: cola no se vacia.
   - Accion: revisar errores de Telegram en logs; los items fallidos se re-encolan para reintento.
+- Problema: aparece `Too Many Requests (429)` en `check-android`.
+  - Accion: ajustar `ANDROID_MAX_PUBLISH_PER_RUN` (por ejemplo `15` o `18`) para limitar publicaciones por corrida y diferir el resto sin saturar Telegram.
+  - Accion: ajustar `ANDROID_MAX_DELETE_PER_RUN` (por ejemplo `12` o `15`) para limitar borrados de expirados por corrida.
 - Problema: memoria mixta o corrupta.
   - Accion: `npm run blobs:normalize-memory`.
 - Problema: quieres resetear ejecucion en pruebas.

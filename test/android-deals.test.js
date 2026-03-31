@@ -20,6 +20,16 @@ function createStore(initial = {}) {
 }
 
 test("Suite Android Consumer", async (t) => {
+  t.before(() => {
+    process.env.ANDROID_MAX_PUBLISH_PER_RUN = "18";
+    process.env.ANDROID_MAX_DELETE_PER_RUN = "18";
+  });
+
+  t.after(() => {
+    delete process.env.ANDROID_MAX_PUBLISH_PER_RUN;
+    delete process.env.ANDROID_MAX_DELETE_PER_RUN;
+  });
+
   t.beforeEach(() => {
     global.fetch = async (url) => {
       if (url.includes("sendPhoto") || url.includes("sendMessage")) {
@@ -160,5 +170,76 @@ test("Suite Android Consumer", async (t) => {
     assert.ok(calledUrls.some((url) => url.includes("deleteMessage")));
     assert.strictEqual(snapshot.android_queue.length, 1);
     assert.strictEqual(snapshot.android_queue[0].id, "com.skip.publish");
+  });
+
+  await t.test("Limita publicaciones por corrida y difiere el resto", async () => {
+    const queue = Array.from({ length: 20 }, (_, index) => ({
+      id: `com.batch.${index + 1}`,
+      title: `Batch ${index + 1}`,
+    }));
+
+    const store = createStore({
+      android_queue: queue,
+      android_expired: [],
+    });
+
+    const publishedGames = [];
+    const result = await checkAndroidDeals(store, publishedGames);
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.publishedCount, 18);
+    assert.strictEqual(publishedGames.length, 18);
+    assert.strictEqual(snapshot.android_queue.length, 2);
+    assert.strictEqual(snapshot.android_queue[0].id, "com.batch.19");
+    assert.strictEqual(snapshot.android_queue[1].id, "com.batch.20");
+  });
+
+  await t.test("Limita borrados por corrida y difiere expirados restantes", async () => {
+    process.env.ANDROID_MAX_DELETE_PER_RUN = "2";
+
+    const calledUrls = [];
+    global.fetch = async (url) => {
+      calledUrls.push(url);
+
+      if (url.includes("deleteMessage")) {
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
+
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      android_queue: [],
+      android_expired: [
+        { id: "com.exp.1", messageId: 101 },
+        { id: "com.exp.2", messageId: 102 },
+        { id: "com.exp.3", messageId: 103 },
+      ],
+    });
+
+    const publishedGames = [
+      { id: "com.exp.1", messageId: 101 },
+      { id: "com.exp.2", messageId: 102 },
+      { id: "com.exp.3", messageId: 103 },
+    ];
+
+    const result = await checkAndroidDeals(store, publishedGames, {
+      processQueue: false,
+      processExpired: true,
+    });
+
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.expiredCount, 2);
+    assert.strictEqual(snapshot.android_expired.length, 1);
+    assert.strictEqual(snapshot.android_expired[0].id, "com.exp.3");
+    assert.strictEqual(publishedGames.length, 1);
+    assert.strictEqual(publishedGames[0].id, "com.exp.3");
+    assert.strictEqual(
+      calledUrls.filter((url) => url.includes("deleteMessage")).length,
+      2
+    );
+
+    process.env.ANDROID_MAX_DELETE_PER_RUN = "18";
   });
 });

@@ -41,4 +41,6 @@ jobs:
           ANDROID_RSS_EXPIRATION_GRACE_HOURS: "24"
           ANDROID_RSS_MIN_ACTIVE_IDS: "10"
           ANDROID_RSS_MAX_EXPIRE_RATIO: "0.35"
+          ANDROID_RSS_DETAILS_DELAY_MS: "250"
+          ANDROID_MAX_DELETE_PER_RUN: "15"
         run: npm run produce:android:rss

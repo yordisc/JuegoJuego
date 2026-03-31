@@ -20,6 +20,16 @@ function createStore(initial = {}) {
   };
 }
 
+function createDetailsFetcher(map = {}) {
+  return async function detailsFetcher(appId) {
+    if (!(appId in map)) {
+      throw new Error(`sin detalles mock para ${appId}`);
+    }
+
+    return map[appId];
+  };
+}
+
 test("Suite Android RSS Producer", async (t) => {
   await t.test("Extrae app IDs desde URL directa de Google Play", () => {
     const ids = extractIdsFromPlayStoreUrl(
@@ -71,7 +81,31 @@ test("Suite Android RSS Producer", async (t) => {
       ],
     };
 
-    const result = await buildAndroidRssQueue(store, { feed });
+    const detailsFetcher = createDetailsFetcher({
+      "com.already.published": {
+        title: "App ya en memoria",
+        genreId: "GAME_ACTION",
+        free: true,
+        price: 0,
+        originalPrice: 2.99,
+      },
+      "com.already.queued": {
+        title: "App ya en queue",
+        genreId: "GAME_ACTION",
+        free: true,
+        price: 0,
+        originalPrice: 1.99,
+      },
+      "com.new.from.rss": {
+        title: "App nueva",
+        genreId: "GAME_PUZZLE",
+        free: true,
+        price: 0,
+        originalPrice: 4.99,
+      },
+    });
+
+    const result = await buildAndroidRssQueue(store, { feed, detailsFetcher, detailsDelayMs: 0 });
     const snapshot = store.snapshot();
 
     assert.strictEqual(result.added, 1);
@@ -79,6 +113,67 @@ test("Suite Android RSS Producer", async (t) => {
     assert.ok(
       snapshot.android_queue.some((item) => item.id === "com.new.from.rss")
     );
+  });
+
+  await t.test("Filtra RSS y agrega solo juegos gratis", async () => {
+    const store = createStore({
+      published_games_android: [],
+      android_queue: [],
+    });
+
+    const feed = {
+      items: [
+        {
+          title: "Juego gratis",
+          link: "https://play.google.com/store/apps/details?id=com.game.free",
+        },
+        {
+          title: "Juego con descuento",
+          link: "https://play.google.com/store/apps/details?id=com.game.discount",
+        },
+        {
+          title: "App gratis no juego",
+          link: "https://play.google.com/store/apps/details?id=com.app.free",
+        },
+      ],
+    };
+
+    const detailsFetcher = createDetailsFetcher({
+      "com.game.free": {
+        title: "Game Free",
+        genreId: "GAME_STRATEGY",
+        free: true,
+        price: 0,
+        originalPrice: 3.49,
+      },
+      "com.game.discount": {
+        title: "Game Discount",
+        genreId: "GAME_STRATEGY",
+        free: false,
+        price: 0.99,
+        originalPrice: 2.99,
+      },
+      "com.app.free": {
+        title: "Non Game",
+        genreId: "PRODUCTIVITY",
+        free: true,
+        price: 0,
+        originalPrice: 1.99,
+      },
+    });
+
+    const result = await buildAndroidRssQueue(store, {
+      feed,
+      detailsFetcher,
+      detailsDelayMs: 0,
+    });
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.feedActiveIds, 1);
+    assert.deepStrictEqual(result.feedActiveIdList, ["com.game.free"]);
+    assert.strictEqual(result.added, 1);
+    assert.strictEqual(snapshot.android_queue.length, 1);
+    assert.strictEqual(snapshot.android_queue[0].id, "com.game.free");
   });
 
   await t.test("Infiere expirados cuando el feed tiene muestra suficiente", () => {
