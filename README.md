@@ -158,6 +158,13 @@ Adicionalmente, se programaron dos ejecuciones semanales automaticas:
   5. `clean-expired`
   6. `clean-duplicates`
 
+Importante sobre `manual-status` y `manual-clean-telegram`:
+
+- Ambos operan sobre mensajes rastreados en Blobs (`published_games_android`, `published_games_pc`, `android_expired`, `pc_expired`, `manual_telegram_cleanup_queue`).
+- No consultan historial completo del canal: la API del bot de Telegram no expone lectura retroactiva total del canal.
+- Si `manual-status` muestra `trackedTelegramMessages: 0`, puede seguir habiendo mensajes antiguos en el canal no registrados en memoria.
+- `manual-clean-telegram` solo borra los `messageId` que existen en memoria rastreada/backlog.
+
 Opcional: proteger con clave manual.
 
 - Define `MANUAL_FUNCTION_KEY` en variables de entorno de Netlify.

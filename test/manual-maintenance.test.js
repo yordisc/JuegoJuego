@@ -74,6 +74,19 @@ test("Snapshot manual de mantenimiento", async (t) => {
       telegramBacklog: 2,
       trackedTelegramMessages: 6,
     });
+    assert.deepStrictEqual(snapshot.tracking, {
+      scope: "memory_only",
+      channelHistoryReadable: false,
+      sources: [
+        "published_games_android",
+        "published_games_pc",
+        "android_expired",
+        "pc_expired",
+        "manual_telegram_cleanup_queue",
+      ],
+    });
+    assert.ok(Array.isArray(snapshot.warnings));
+    assert.ok(snapshot.warnings.length >= 1);
   });
 
   await t.test("Incluye muestras cuando se solicitan", async () => {

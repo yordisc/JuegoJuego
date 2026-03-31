@@ -107,6 +107,18 @@ exports.handler = async (event) => {
         ...result.summary,
       })
     );
+    if (result.tracking) {
+      console.log(
+        "[manual-status] tracking:",
+        JSON.stringify(result.tracking)
+      );
+    }
+    if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+      console.warn(
+        "[manual-status] warnings:",
+        JSON.stringify(result.warnings)
+      );
+    }
     if (includeSamples && result.samples && logLevel === "debug") {
       console.log("[manual-status] samples:", JSON.stringify(result.samples));
     } else if (includeSamples && result.samples) {

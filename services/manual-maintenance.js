@@ -298,7 +298,28 @@ async function deleteTrackedTelegramMessages(store) {
     .filter(Boolean);
   await store.setJSON(KEY_MANUAL_TELEGRAM_BACKLOG, unresolvedBacklog);
 
+  const tracking = {
+    scope: "memory_only",
+    channelHistoryReadable: false,
+    sources: [
+      "published_games_android",
+      "published_games_pc",
+      "android_expired",
+      "pc_expired",
+      "manual_telegram_cleanup_queue",
+    ],
+  };
+
+  const warnings = [];
+  if (uniqueMessages.length === 0) {
+    warnings.push(
+      "No hay mensajes rastreados en memoria para borrar; puede haber mensajes en el canal no registrados en Blobs."
+    );
+  }
+
   return {
+    tracking,
+    warnings,
     trackedMessages: uniqueMessages.length,
     deleted,
     failed,
@@ -343,8 +364,30 @@ async function getMaintenanceSnapshot(store, options = {}) {
     trackedTelegramMessages: messageIds.size,
   };
 
+  const tracking = {
+    scope: "memory_only",
+    channelHistoryReadable: false,
+    sources: [
+      "published_games_android",
+      "published_games_pc",
+      "android_expired",
+      "pc_expired",
+      "manual_telegram_cleanup_queue",
+    ],
+  };
+
+  const warnings = [];
+  warnings.push(
+    "manual-status refleja solo memoria rastreada en Blobs, no el historial completo del canal de Telegram."
+  );
+  if (summary.trackedTelegramMessages === 0) {
+    warnings.push(
+      "No hay messageId rastreados actualmente; si el canal tiene mensajes antiguos, no podran reflejarse ni borrarse automaticamente sin registro previo."
+    );
+  }
+
   if (!includeSamples) {
-    return { summary };
+    return { summary, tracking, warnings };
   }
 
   const sampleFrom = (items) =>
@@ -357,6 +400,8 @@ async function getMaintenanceSnapshot(store, options = {}) {
 
   return {
     summary,
+    tracking,
+    warnings,
     samples: {
       androidQueue: sampleFrom(androidQueue),
       pcQueue: sampleFrom(pcQueue),
