@@ -102,6 +102,14 @@ function toBacklogEntry(messageId) {
   };
 }
 
+function isTelegramDeleteNotFound(status, errorText) {
+  if (status !== 400) {
+    return false;
+  }
+
+  return /message to delete not found/i.test(String(errorText || ""));
+}
+
 function collectMessageIds(items) {
   const result = [];
   for (const item of items) {
@@ -235,9 +243,19 @@ async function deleteTrackedTelegramMessages(store) {
         continue;
       }
 
+      const text = await response.text().catch(() => `HTTP ${response.status}`);
+
+      if (isTelegramDeleteNotFound(response.status, text)) {
+        deleted += 1;
+        deletedMessageIds.add(item.messageId);
+        console.info(
+          `[manual-maintenance] Mensaje ${item.messageId} ya no existe (${item.source}), se marca como resuelto.`
+        );
+        continue;
+      }
+
       failed += 1;
       failedMessageIds.add(item.messageId);
-      const text = await response.text().catch(() => `HTTP ${response.status}`);
       console.warn(
         `[manual-maintenance] No se pudo borrar mensaje ${item.messageId} (${item.source}): ${text}`
       );

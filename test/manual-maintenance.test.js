@@ -16,11 +16,27 @@ Module._load = function (request, ...args) {
   return originalLoad.call(this, request, ...args);
 };
 
-const { getMaintenanceSnapshot } = require("../services/manual-maintenance");
+const {
+  getMaintenanceSnapshot,
+  deleteTrackedTelegramMessages,
+} = require("../services/manual-maintenance");
 
 function createMockStore(dataByKey) {
+  const data = { ...dataByKey };
+
   return {
-    get: async (key) => dataByKey[key] || null,
+    get: async (key) => {
+      if (!(key in data)) {
+        return null;
+      }
+
+      const value = data[key];
+      return typeof value === "string" ? value : JSON.stringify(value);
+    },
+    setJSON: async (key, value) => {
+      data[key] = value;
+    },
+    snapshot: () => ({ ...data }),
   };
 }
 
@@ -89,5 +105,42 @@ test("Snapshot manual de mantenimiento", async (t) => {
     assert.deepStrictEqual(snapshot.samples.telegramBacklog, [
       { id: null, messageId: 50 },
     ]);
+  });
+
+  await t.test("Considera 'message to delete not found' como borrado resuelto", async () => {
+    process.env.TELEGRAM_TOKEN = "test-token";
+    process.env.CHANNEL_ID = "@testchannel";
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request: message to delete not found",
+        }),
+    });
+
+    const store = createMockStore({
+      published_games_android: JSON.stringify([{ id: "com.a", messageId: 160 }]),
+      published_games_pc: JSON.stringify([]),
+      android_expired: JSON.stringify([]),
+      pc_expired: JSON.stringify([]),
+      manual_telegram_cleanup_queue: JSON.stringify([{ messageId: 160 }]),
+    });
+
+    const result = await deleteTrackedTelegramMessages(store);
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.trackedMessages, 1);
+    assert.strictEqual(result.deleted, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.deepStrictEqual(result.unresolvedMessageIds, []);
+    assert.deepStrictEqual(snapshot.manual_telegram_cleanup_queue, []);
+    assert.deepStrictEqual(snapshot.published_games_android, []);
+
+    global.fetch = originalFetch;
   });
 });

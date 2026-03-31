@@ -82,6 +82,14 @@ async function readTelegramError(response) {
   }
 }
 
+function isTelegramDeleteNotFound(status, errorText) {
+  if (status !== 400) {
+    return false;
+  }
+
+  return /message to delete not found/i.test(String(errorText || ""));
+}
+
 function dedupeById(items) {
   const seen = new Set();
   const result = [];
@@ -281,23 +289,29 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
               details.text
             );
 
-            if (telegramResponse.status === 429) {
-              const retryNote =
-                details.retryAfterSeconds != null
-                  ? `reintentar en ~${details.retryAfterSeconds}s`
-                  : "reintentar en la siguiente corrida";
-              console.warn(
-                `[android-consumer] Rate limit en expirados (${retryNote}). Se difiere el resto.`
+            if (isTelegramDeleteNotFound(telegramResponse.status, details.text)) {
+              console.info(
+                `[android-consumer] Mensaje expirado no encontrado (${messageId}), se marca como resuelto.`
               );
+            } else {
+              if (telegramResponse.status === 429) {
+                const retryNote =
+                  details.retryAfterSeconds != null
+                    ? `reintentar en ~${details.retryAfterSeconds}s`
+                    : "reintentar en la siguiente corrida";
+                console.warn(
+                  `[android-consumer] Rate limit en expirados (${retryNote}). Se difiere el resto.`
+                );
 
-              retryExpiredQueue.push(...expiredQueue.slice(index));
+                retryExpiredQueue.push(...expiredQueue.slice(index));
+                deleteErrors += 1;
+                break;
+              }
+
               deleteErrors += 1;
-              break;
+              retryExpiredQueue.push(item);
+              continue;
             }
-
-            deleteErrors += 1;
-            retryExpiredQueue.push(item);
-            continue;
           }
         } catch (err) {
           console.error("[android-consumer] Error de red eliminando expirado:", err.message);

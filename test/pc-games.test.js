@@ -159,4 +159,40 @@ test("Suite PC Consumer", async (t) => {
     assert.strictEqual(snapshot.pc_queue.length, 1);
     assert.strictEqual(snapshot.pc_queue[0].id, "will-not-publish");
   });
+
+  await t.test("Trata 'message to delete not found' como expirado resuelto", async () => {
+    global.fetch = async (url) => {
+      if (url.includes("deleteMessage")) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message to delete not found",
+            }),
+        };
+      }
+
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      pc_queue: [],
+      pc_expired: [{ id: "pc.notfound", messageId: 777 }],
+    });
+
+    const publishedGames = [{ id: "pc.notfound", messageId: 777 }];
+    const result = await checkPCGames(store, publishedGames, {
+      processQueue: false,
+      processExpired: true,
+    });
+
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.expiredCount, 1);
+    assert.strictEqual(publishedGames.length, 0);
+    assert.deepStrictEqual(snapshot.pc_expired, []);
+  });
 });

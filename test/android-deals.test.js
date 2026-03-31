@@ -242,4 +242,40 @@ test("Suite Android Consumer", async (t) => {
 
     process.env.ANDROID_MAX_DELETE_PER_RUN = "18";
   });
+
+  await t.test("Trata 'message to delete not found' como expirado resuelto", async () => {
+    global.fetch = async (url) => {
+      if (url.includes("deleteMessage")) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message to delete not found",
+            }),
+        };
+      }
+
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      android_queue: [],
+      android_expired: [{ id: "com.notfound", messageId: 555 }],
+    });
+
+    const publishedGames = [{ id: "com.notfound", messageId: 555 }];
+    const result = await checkAndroidDeals(store, publishedGames, {
+      processQueue: false,
+      processExpired: true,
+    });
+
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.expiredCount, 1);
+    assert.strictEqual(publishedGames.length, 0);
+    assert.deepStrictEqual(snapshot.android_expired, []);
+  });
 });
