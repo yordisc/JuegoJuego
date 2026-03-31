@@ -35,4 +35,8 @@ jobs:
           NETLIFY_API_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
           ANDROID_PRODUCER_DEBUG: "1"
           ANDROID_PRODUCER_DEBUG_SAMPLES: "5"
+          ANDROID_PRODUCER_EXPIRATION_ENABLED: "true"
+          ANDROID_PRODUCER_MIN_ACTIVE_IDS: "10"
+          ANDROID_PRODUCER_EXPIRATION_GRACE_HOURS: "24"
+          ANDROID_PRODUCER_MAX_EXPIRE_RATIO: "0.35"
         run: node scripts/github-android.js

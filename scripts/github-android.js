@@ -4,6 +4,7 @@ if (process.env.NODE_ENV !== "production") {
 
 const fs = require("node:fs/promises");
 const { getStore } = require("@netlify/blobs");
+const { inferExpiredAndroidFromFeed } = require("../services/android-rss");
 
 const TITLE_KEYWORDS = [
   "deal",
@@ -101,7 +102,7 @@ async function writeStepSummary(summary) {
 
 function normalizeEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
-    return { id: entry.trim(), messageId: null };
+    return { id: entry.trim(), messageId: null, publishedAt: null };
   }
 
   if (!entry || typeof entry !== "object") {
@@ -126,7 +127,14 @@ function normalizeEntry(entry) {
       ? Number(rawMessageId)
       : null;
 
-  return { id, messageId };
+  const rawPublishedAt = entry.publishedAt;
+  const publishedAt = Number.isInteger(rawPublishedAt)
+    ? rawPublishedAt
+    : typeof rawPublishedAt === "string" && /^\d+$/.test(rawPublishedAt)
+      ? Number(rawPublishedAt)
+      : null;
+
+  return { id, messageId, publishedAt };
 }
 
 function normalizeList(rawData) {
@@ -211,6 +219,142 @@ async function writeJsonArray(store, key, value) {
   await store.setJSON(key, data);
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseRatio(value, fallback) {
+  const parsed = Number.parseFloat(String(value ?? ""));
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  if (parsed <= 0) {
+    return 0;
+  }
+
+  if (parsed >= 1) {
+    return 1;
+  }
+
+  return parsed;
+}
+
+function parseBoolEnv(value, fallback = true) {
+  if (value == null) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function toExpiredEntry(entry) {
+  const normalized = normalizeEntry(entry);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    id: normalized.id,
+    messageId: normalized.messageId,
+  };
+}
+
+function dedupeExpiredEntries(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    const normalized = toExpiredEntry(item);
+    if (!normalized || seen.has(normalized.id)) {
+      continue;
+    }
+
+    seen.add(normalized.id);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function inferSafeExpiredForProducer(
+  publishedGames,
+  activeDealIds,
+  existingExpired,
+  queue,
+  options = {}
+) {
+  const expirationEnabled = options.expirationEnabled !== false;
+  const queueIds = new Set(
+    normalizeList(queue).map((entry) => entry.id)
+  );
+  const normalizedPublished = normalizeList(publishedGames);
+  const normalizedExistingExpired = dedupeExpiredEntries(existingExpired);
+
+  if (!expirationEnabled) {
+    return {
+      inferredExpired: [],
+      expirationMeta: { reason: "expiration_disabled" },
+      mergedExpired: normalizedExistingExpired.filter(
+        (entry) => !queueIds.has(entry.id)
+      ),
+    };
+  }
+
+  const expirationResult = inferExpiredAndroidFromFeed(
+    normalizedPublished,
+    Array.isArray(activeDealIds) ? activeDealIds : [],
+    {
+      minActiveIds: parsePositiveInt(
+        options.minActiveIds,
+        parsePositiveInt(process.env.ANDROID_PRODUCER_MIN_ACTIVE_IDS, 10)
+      ),
+      graceHours: parsePositiveInt(
+        options.graceHours,
+        parsePositiveInt(process.env.ANDROID_PRODUCER_EXPIRATION_GRACE_HOURS, 24)
+      ),
+      maxExpireRatio: parseRatio(
+        options.maxExpireRatio,
+        parseRatio(process.env.ANDROID_PRODUCER_MAX_EXPIRE_RATIO, 0.35)
+      ),
+      withMeta: true,
+    }
+  );
+
+  const inferredExpiredRaw = Array.isArray(expirationResult)
+    ? expirationResult
+    : expirationResult.expired;
+  const inferredExpired = dedupeExpiredEntries(inferredExpiredRaw);
+  const expirationMeta = expirationResult && typeof expirationResult === "object"
+    ? expirationResult.meta
+    : null;
+
+  const mergedExpired = dedupeExpiredEntries([
+    ...normalizedExistingExpired,
+    ...inferredExpired,
+  ]).filter((entry) => !queueIds.has(entry.id));
+
+  return {
+    inferredExpired,
+    expirationMeta,
+    mergedExpired,
+  };
+}
+
 function getStoreFromEnv() {
   const siteID = process.env.NETLIFY_SITE_ID;
   const token = process.env.NETLIFY_API_TOKEN;
@@ -241,6 +385,9 @@ async function buildAndroidQueues() {
   const store = getStoreFromEnv();
   const legacyMemory = await readJsonArray(store, KEY_ANDROID_MEMORY);
   const publishedGames = normalizeList(legacyMemory);
+  const existingExpired = dedupeExpiredEntries(
+    await readJsonArray(store, KEY_ANDROID_EXPIRED)
+  );
   const publishedIds = new Set(publishedGames.map((entry) => entry.id));
 
   const moduleRef = await import("google-play-scraper");
@@ -345,9 +492,24 @@ async function buildAndroidQueues() {
   }
 
   const validDealIds = new Set(validDeals.map((deal) => deal.id));
+  const expirationEnabled = parseBoolEnv(
+    process.env.ANDROID_PRODUCER_EXPIRATION_ENABLED,
+    true
+  );
 
   const queue = validDeals.filter((deal) => !publishedIds.has(deal.id));
-  const expired = publishedGames.filter((entry) => !validDealIds.has(entry.id));
+  const expirationResolution = inferSafeExpiredForProducer(
+    publishedGames,
+    Array.from(validDealIds),
+    existingExpired,
+    queue,
+    {
+      expirationEnabled,
+    }
+  );
+  const expired = expirationResolution.mergedExpired;
+  const inferredExpired = expirationResolution.inferredExpired;
+  const expirationMeta = expirationResolution.expirationMeta;
 
   await writeJsonArray(store, KEY_ANDROID_QUEUE, queue);
   await writeJsonArray(store, KEY_ANDROID_EXPIRED, expired);
@@ -360,6 +522,10 @@ async function buildAndroidQueues() {
     detailsRequests,
     detailsFailures,
     validDeals: validDeals.length,
+    expirationEnabled,
+    inferredExpiredCount: inferredExpired.length,
+    expirationReason:
+      expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a",
     queueCount: queue.length,
     expiredCount: expired.length,
     queueSamples: queue.slice(0, DEBUG_SAMPLE_SIZE).map((item) => ({
@@ -377,6 +543,12 @@ async function buildAndroidQueues() {
   console.log(`[producer-android] publicados memoria: ${publishedGames.length}`);
   console.log(`[producer-android] candidatos validos: ${validDeals.length}`);
   console.log(`[producer-android] nuevos en queue: ${queue.length}`);
+  console.log(`[producer-android] expirados inferidos: ${inferredExpired.length}`);
+  console.log(
+    `[producer-android] razon expiracion: ${
+      expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a"
+    }`
+  );
   console.log(`[producer-android] expirados detectados: ${expired.length}`);
   console.log(`[producer-android] duracion total: ${formatMs(elapsedMs)}`);
   debugLog("Resumen detallado", debugPayload);
@@ -384,7 +556,7 @@ async function buildAndroidQueues() {
     `[metrics] ${JSON.stringify({
       source: "producer-android",
       items_produced: queue.length,
-      items_expired: expired.length,
+      items_expired: inferredExpired.length,
       publish_errors: 0,
         delete_errors: 0,
     })}`
@@ -401,7 +573,9 @@ async function buildAndroidQueues() {
       `- Fallos de detalle: ${detailsFailures}`,
       `- Deals validos: ${validDeals.length}`,
       `- Nuevos en cola: ${queue.length}`,
-      `- Expirados: ${expired.length}`,
+      `- Expirados inferidos: ${inferredExpired.length}`,
+      `- Expirados en store: ${expired.length}`,
+      `- Razon expiracion: ${expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a"}`,
       "",
       "| Termino | Raw | Unicos | Titulo OK | Detalle OK | Deals |",
       "|---|---:|---:|---:|---:|---:|",
@@ -414,11 +588,18 @@ async function buildAndroidQueues() {
   );
 }
 
-buildAndroidQueues()
-  .then(() => {
-    console.log("[producer-android] OK");
-  })
-  .catch((err) => {
-    console.error("[producer-android] ERROR", err);
-    process.exitCode = 1;
-  });
+module.exports = {
+  buildAndroidQueues,
+  inferSafeExpiredForProducer,
+};
+
+if (require.main === module) {
+  buildAndroidQueues()
+    .then(() => {
+      console.log("[producer-android] OK");
+    })
+    .catch((err) => {
+      console.error("[producer-android] ERROR", err);
+      process.exitCode = 1;
+    });
+}
