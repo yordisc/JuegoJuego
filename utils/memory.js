@@ -8,6 +8,10 @@ const MEMORY_KEYS = {
   pc: "published_games_pc",
 };
 
+const MEMORY_LIMITS = {
+  android: 300,
+};
+
 function normalizeMemoryEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
     return { id: entry.trim(), messageId: null, publishedAt: null };
@@ -90,10 +94,14 @@ async function getPublishedGamesList(store, platform = "android") {
 
 async function savePublishedGamesList(store, publishedGames, platform = "android") {
   const key = getKey(platform);
+  const limit = MEMORY_LIMITS[platform] || null;
 
   // 2. VALIDACIÓN DEFENSIVA: 
   // Nos aseguramos de que a la base de datos NUNCA llegue algo que no sea un Array.
-  const dataToSave = normalizePublishedGames(publishedGames);
+  const normalized = normalizePublishedGames(publishedGames);
+  const dataToSave = Number.isInteger(limit) && limit > 0
+    ? normalized.slice(-limit)
+    : normalized;
 
   try {
     // 3. PROTECCIÓN DE ESCRITURA:

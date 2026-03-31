@@ -117,4 +117,28 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       ]);
     }
   );
+
+  await t.test(
+    "Caso 6: Debe mantener solo los ultimos 300 en Android",
+    async () => {
+      const items = Array.from({ length: 305 }, (_, i) => ({
+        id: `com.game.${i + 1}`,
+        messageId: i + 1,
+        publishedAt: 1000 + i,
+      }));
+
+      let saved = [];
+      const mockStore = {
+        setJSON: async (_key, data) => {
+          saved = data;
+        },
+      };
+
+      await savePublishedGamesList(mockStore, items, "android");
+
+      assert.strictEqual(saved.length, 300);
+      assert.strictEqual(saved[0].id, "com.game.6");
+      assert.strictEqual(saved[299].id, "com.game.305");
+    }
+  );
 });

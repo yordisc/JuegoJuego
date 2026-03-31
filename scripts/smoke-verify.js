@@ -8,9 +8,12 @@ const { getStore } = require("@netlify/blobs");
 
 const REQUIRED_FILES = [
   ".github/workflows/scraper.yml",
+  ".github/workflows/scraper-pc.yml",
+  ".github/workflows/scraper-android-rss.yml",
   "netlify/functions/check-android.js",
   "netlify/functions/check-pc.js",
   "scripts/github-android.js",
+  "scripts/github-android-rss.js",
   "scripts/github-pc.js",
 ];
 

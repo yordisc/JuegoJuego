@@ -27,6 +27,7 @@ El diseño arquitectónico prioriza la eficiencia extrema, logrando los siguient
 
 - **Microservicios Desacoplados:** En lugar de un orquestador monolítico, el sistema divide las cargas de trabajo según la volatilidad de la fuente. Esto **redujo el consumo de peticiones de red en un 74%** y evita bloqueos por _Rate Limiting_ (HTTP 429).
   - _Google Play Scraper (Android):_ Ejecución cada 20 minutos con camuflaje de `User-Agent`.
+  - _Reddit RSS (Android):_ Ejecución cada 4 horas desde GitHub Actions consumiendo `r/googleplaydeals/new.rss`.
   - _GamerPower API (PC):_ Ejecución programada 2 veces al día filtrando parámetros directamente desde el origen.
 - **Garbage Collection y Gestión de Memoria Dual:** Para evitar _Memory Leaks_ en el almacén de datos (Netlify Blobs), se implementaron dos estrategias de limpieza automatizada en memoria RAM:
   - _Sincronización de Estado (PC):_ Purga automática de IDs que ya no están activos en el _endpoint_ origen.
@@ -36,7 +37,7 @@ El diseño arquitectónico prioriza la eficiencia extrema, logrando los siguient
 
 ## ⚙️ Flujo de Operación de los Microservicios
 
-1.  **El Disparador (Cron):** El motor de Netlify orquesta los tiempos de ejecución (_Scheduled Functions_) de manera independiente.
+1.  **El Disparador (Cron):** GitHub Actions ejecuta los productores y Netlify ejecuta consumidores y limpiezas ligeras.
 2.  **Extracción:** Los servicios consultan las tiendas. El sistema es tolerante a fallos (`try/catch`) ante posibles caídas de estos servicios externos.
 3.  **Filtro de Negocio:** Se aplican reglas estrictas de validación (ej. buscar metadatos que confirmen descuentos totales o etiquetas de popularidad).
 4.  **Validación de Caché:** Se contrasta el ID de la oferta contra la memoria ultraligera en Netlify Blobs para evitar publicaciones duplicadas.
@@ -58,7 +59,15 @@ El scraping pesado ya no corre dentro de Netlify Functions.
 1. **Productor (GitHub Actions):**
    - Ejecuta `scripts/github-android.js` y `scripts/github-pc.js`.
    - Escribe colas en Blobs: `android_queue`, `android_expired`, `pc_queue`, `pc_expired`.
-2. **Consumidor (Netlify Functions):**
+2. **Productor RSS (GitHub Actions):**
+
+- Ejecuta `scripts/github-android-rss.js` cada 4 horas.
+- Lee `https://www.reddit.com/r/googleplaydeals/new.rss` y agrega solo apps nuevas a `android_queue`.
+- Deduplica contra `published_games_android` y contra la cola ya existente.
+- En la misma corrida infiere expirados desde el feed, llena `android_expired` y elimina mensajes expirados en Telegram.
+- Incluye guardas anti-falsos positivos: `ANDROID_RSS_MIN_ACTIVE_IDS`, `ANDROID_RSS_EXPIRATION_GRACE_HOURS` y `ANDROID_RSS_MAX_EXPIRE_RATIO`.
+
+3. **Consumidor (Netlify Functions):**
 
 - `check-android` y `check-pc` publican novedades desde sus colas.
 - `clean-expired` elimina en Telegram los juegos expirados de Android y PC.
@@ -83,7 +92,12 @@ Prerequisitos:
 
 Pasos:
 
-1. Ejecutar manualmente el workflow `Producer Scraper Queues`.
+1. Ejecutar manualmente estos workflows:
+
+- `Producer Android Queue`
+- `Producer Android RSS Queue`
+- `Producer PC Queue`
+
 2. Verificar colas en Blobs:
    - `npm run blobs:show`
 3. Ejecutar funciones consumidoras en Netlify (scheduler o trigger manual).
@@ -105,6 +119,8 @@ Si quieres reprocesar publicaciones/expirados, vuelve a disparar el productor:
 ```bash
 npm run smoke:producer
 ```
+
+`smoke:producer` incluye Android + Android RSS (sin cleanup de Telegram) + PC.
 
 Luego ejecuta el consumidor (vía Netlify).
 

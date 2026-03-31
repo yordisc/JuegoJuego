@@ -2,6 +2,7 @@ if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
 }
 
+const fs = require("node:fs/promises");
 const { getStore } = require("@netlify/blobs");
 
 const TITLE_KEYWORDS = [
@@ -45,9 +46,57 @@ const SEARCH_TERMS = [
 const KEY_ANDROID_MEMORY = "published_games_android";
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
+const DEBUG_ENABLED =
+  process.env.ANDROID_PRODUCER_DEBUG === "1" ||
+  process.env.ANDROID_PRODUCER_DEBUG === "true";
+const DEBUG_SAMPLE_SIZE = Number.isInteger(Number(process.env.ANDROID_PRODUCER_DEBUG_SAMPLES))
+  ? Math.max(1, Number(process.env.ANDROID_PRODUCER_DEBUG_SAMPLES))
+  : 3;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function debugLog(message, payload) {
+  if (!DEBUG_ENABLED) {
+    return;
+  }
+
+  if (payload === undefined) {
+    console.log(`[producer-android][debug] ${message}`);
+    return;
+  }
+
+  console.log(`[producer-android][debug] ${message}`, payload);
+}
+
+function maskValue(value, visible = 4) {
+  if (!value || typeof value !== "string") {
+    return "missing";
+  }
+
+  if (value.length <= visible) {
+    return `${"*".repeat(value.length)}`;
+  }
+
+  return `${value.slice(0, visible)}${"*".repeat(4)}`;
+}
+
+function formatMs(ms) {
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+async function writeStepSummary(summary) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) {
+    return;
+  }
+
+  try {
+    await fs.appendFile(summaryPath, summary, "utf8");
+  } catch (err) {
+    console.warn(`[producer-android] No se pudo escribir GITHUB_STEP_SUMMARY: ${err.message}`);
+  }
 }
 
 function normalizeEntry(entry) {
@@ -180,6 +229,15 @@ function getStoreFromEnv() {
 }
 
 async function buildAndroidQueues() {
+  const startedAt = Date.now();
+  debugLog("Inicio productor Android", {
+    runAtUtc: new Date(startedAt).toISOString(),
+    node: process.version,
+    terms: SEARCH_TERMS.length,
+    siteId: maskValue(process.env.NETLIFY_SITE_ID),
+    token: process.env.NETLIFY_API_TOKEN ? "present" : "missing",
+  });
+
   const store = getStoreFromEnv();
   const legacyMemory = await readJsonArray(store, KEY_ANDROID_MEMORY);
   const publishedGames = normalizeList(legacyMemory);
@@ -190,9 +248,21 @@ async function buildAndroidQueues() {
 
   const seenCandidates = new Set();
   const validDeals = [];
+  const perTermStats = [];
+  let detailsRequests = 0;
+  let detailsFailures = 0;
 
   for (const term of SEARCH_TERMS) {
     console.log(`[producer-android] Buscando term: ${term}`);
+
+    const termStat = {
+      term,
+      rawResults: 0,
+      uniqueCandidates: 0,
+      titleMatches: 0,
+      detailsOk: 0,
+      dealsQualified: 0,
+    };
 
     let results = [];
     try {
@@ -207,29 +277,40 @@ async function buildAndroidQueues() {
       console.warn(
         `[producer-android] Fallo search term ${term}: ${err.message}`
       );
+      perTermStats.push({
+        ...termStat,
+        searchError: err.message,
+      });
       continue;
     }
+
+    termStat.rawResults = results.length;
 
     for (const app of results) {
       if (!app || !app.appId || seenCandidates.has(app.appId)) {
         continue;
       }
       seenCandidates.add(app.appId);
+      termStat.uniqueCandidates += 1;
 
       if (!matchesTitle(app.title)) {
         continue;
       }
+      termStat.titleMatches += 1;
 
       await sleep(1200);
 
       let details;
       try {
+        detailsRequests += 1;
         details = await gplay.app({
           appId: app.appId,
           lang: "es",
           country: "us",
         });
+        termStat.detailsOk += 1;
       } catch (err) {
+        detailsFailures += 1;
         console.warn(
           `[producer-android] Fallo app() para ${app.appId}: ${err.message}`
         );
@@ -242,6 +323,8 @@ async function buildAndroidQueues() {
       if (!qualifies) {
         continue;
       }
+
+      termStat.dealsQualified += 1;
 
       validDeals.push({
         id: app.appId,
@@ -256,6 +339,8 @@ async function buildAndroidQueues() {
       });
     }
 
+    perTermStats.push(termStat);
+    debugLog(`Termino term: ${term}`, termStat);
     await sleep(1200);
   }
 
@@ -267,10 +352,34 @@ async function buildAndroidQueues() {
   await writeJsonArray(store, KEY_ANDROID_QUEUE, queue);
   await writeJsonArray(store, KEY_ANDROID_EXPIRED, expired);
 
+  const elapsedMs = Date.now() - startedAt;
+  const debugPayload = {
+    elapsedSeconds: Number((elapsedMs / 1000).toFixed(2)),
+    memoryCount: publishedGames.length,
+    uniqueCandidates: seenCandidates.size,
+    detailsRequests,
+    detailsFailures,
+    validDeals: validDeals.length,
+    queueCount: queue.length,
+    expiredCount: expired.length,
+    queueSamples: queue.slice(0, DEBUG_SAMPLE_SIZE).map((item) => ({
+      id: item.id,
+      title: item.title,
+      originalPrice: item.originalPrice,
+    })),
+    expiredSamples: expired.slice(0, DEBUG_SAMPLE_SIZE).map((item) => ({
+      id: item.id,
+      messageId: item.messageId ?? null,
+    })),
+    perTermStats,
+  };
+
   console.log(`[producer-android] publicados memoria: ${publishedGames.length}`);
   console.log(`[producer-android] candidatos validos: ${validDeals.length}`);
   console.log(`[producer-android] nuevos en queue: ${queue.length}`);
   console.log(`[producer-android] expirados detectados: ${expired.length}`);
+  console.log(`[producer-android] duracion total: ${formatMs(elapsedMs)}`);
+  debugLog("Resumen detallado", debugPayload);
   console.log(
     `[metrics] ${JSON.stringify({
       source: "producer-android",
@@ -279,6 +388,29 @@ async function buildAndroidQueues() {
       publish_errors: 0,
         delete_errors: 0,
     })}`
+  );
+
+  await writeStepSummary(
+    [
+      "### Android Producer Debug",
+      "",
+      `- Inicio UTC: ${new Date(startedAt).toISOString()}`,
+      `- Duracion: ${formatMs(elapsedMs)}`,
+      `- Candidatos unicos: ${seenCandidates.size}`,
+      `- Solicitudes de detalle: ${detailsRequests}`,
+      `- Fallos de detalle: ${detailsFailures}`,
+      `- Deals validos: ${validDeals.length}`,
+      `- Nuevos en cola: ${queue.length}`,
+      `- Expirados: ${expired.length}`,
+      "",
+      "| Termino | Raw | Unicos | Titulo OK | Detalle OK | Deals |",
+      "|---|---:|---:|---:|---:|---:|",
+      ...perTermStats.map(
+        (stat) =>
+          `| ${stat.term} | ${stat.rawResults} | ${stat.uniqueCandidates} | ${stat.titleMatches} | ${stat.detailsOk} | ${stat.dealsQualified} |`
+      ),
+      "",
+    ].join("\n")
   );
 }
 

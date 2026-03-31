@@ -6,8 +6,10 @@
   "scripts": {
     "test": "node --test",
     "produce:android": "node scripts/github-android.js",
+    "produce:android:rss": "node scripts/github-android-rss.js",
+    "produce:android:rss:no-cleanup": "ANDROID_RSS_SKIP_CLEANUP=1 node scripts/github-android-rss.js",
     "produce:pc": "node scripts/github-pc.js",
-    "produce:all": "npm run produce:android && npm run produce:pc",
+    "produce:all": "npm run produce:android && npm run produce:android:rss:no-cleanup && npm run produce:pc",
     "blobs:show": "node scripts/blobs-admin.js show",
     "blobs:clear-queues": "node scripts/blobs-admin.js clear-queues",
     "blobs:normalize-memory": "node scripts/blobs-admin.js normalize-memory",
@@ -31,7 +33,8 @@
   "dependencies": {
     "@netlify/blobs": "^10.7.4",
     "dotenv": "^17.3.1",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "rss-parser": "^3.13.0"
   },
   "devDependencies": {
     "google-play-scraper": "^10.1.2"

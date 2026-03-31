@@ -7,6 +7,9 @@
   # Ejecutar cada 20 minutos
   schedule = "*/20 * * * *"
 
+# Microservicio 1.1: Productor RSS (Android Reddit)
+# Desactivado en Netlify: ahora corre desde GitHub Actions para evitar timeout.
+
 # Microservicio 2: GamerPower (PC)
 [functions.check-pc]
   # Ejecutar a las 10:00 AM y a las 10:00 PM todos los días
