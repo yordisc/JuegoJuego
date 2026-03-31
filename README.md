@@ -163,6 +163,16 @@ Opcional: proteger con clave manual.
 - Define `MANUAL_FUNCTION_KEY` en variables de entorno de Netlify.
 - En la llamada HTTP agrega header `x-manual-key: <tu_clave>`.
 
+Control de verbosidad en logs de funciones manuales:
+
+- `MANUAL_LOG_LEVEL=compact`: imprime solo resumen operativo por funcion (menos ruido en logs).
+- `MANUAL_LOG_LEVEL=debug`: imprime resumen + detalles completos por funcion.
+
+Valor por defecto:
+
+- Produccion (`NODE_ENV=production`): `compact`.
+- Desarrollo/local: `debug`.
+
 Ejemplo:
 
 ```bash

@@ -47,6 +47,15 @@ function parsePositiveInt(raw, fallback) {
   return Math.floor(value);
 }
 
+function getManualLogLevel() {
+  const fallback =
+    process.env.NODE_ENV === "production" ? "compact" : "debug";
+  const raw = String(process.env.MANUAL_LOG_LEVEL || fallback)
+    .trim()
+    .toLowerCase();
+  return raw === "debug" ? "debug" : "compact";
+}
+
 exports.handler = async (event) => {
   if (!isAuthorized(event)) {
     return {
@@ -58,6 +67,8 @@ exports.handler = async (event) => {
   console.log("========================================");
   console.log("📊 INICIANDO MANUAL-STATUS");
   console.log("========================================");
+
+  const logLevel = getManualLogLevel();
 
   try {
     const report = getBlobCredentialReport(process.env);
@@ -87,8 +98,36 @@ exports.handler = async (event) => {
       sampleSize,
     });
 
+    console.log(
+      "[manual-status] summary:",
+      JSON.stringify({
+        logLevel,
+        includeSamples,
+        sampleSize,
+        ...result.summary,
+      })
+    );
+    if (includeSamples && result.samples && logLevel === "debug") {
+      console.log("[manual-status] samples:", JSON.stringify(result.samples));
+    } else if (includeSamples && result.samples) {
+      console.log(
+        "[manual-status] samples-resumen:",
+        JSON.stringify(
+          Object.fromEntries(
+            Object.entries(result.samples).map(([key, items]) => [
+              key,
+              Array.isArray(items) ? items.length : 0,
+            ])
+          )
+        )
+      );
+    }
+
     return {
       statusCode: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+      },
       body: JSON.stringify({
         success: true,
         action: "manual-status",

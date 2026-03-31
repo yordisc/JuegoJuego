@@ -22,6 +22,15 @@ function isAuthorized(event) {
   return headerKey === requiredKey;
 }
 
+function getManualLogLevel() {
+  const fallback =
+    process.env.NODE_ENV === "production" ? "compact" : "debug";
+  const raw = String(process.env.MANUAL_LOG_LEVEL || fallback)
+    .trim()
+    .toLowerCase();
+  return raw === "debug" ? "debug" : "compact";
+}
+
 exports.handler = async (event) => {
   if (!isAuthorized(event)) {
     return {
@@ -33,6 +42,8 @@ exports.handler = async (event) => {
   console.log("========================================");
   console.log("🧹 INICIANDO MANUAL-CLEAN-TELEGRAM");
   console.log("========================================");
+
+  const logLevel = getManualLogLevel();
 
   try {
     const report = getBlobCredentialReport(process.env);
@@ -46,8 +57,28 @@ exports.handler = async (event) => {
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
     const result = await deleteTrackedTelegramMessages(store);
 
+    if (logLevel === "debug") {
+      console.log("[manual-clean-telegram] result:", JSON.stringify(result));
+    } else {
+      console.log(
+        "[manual-clean-telegram] result-resumen:",
+        JSON.stringify({
+          logLevel,
+          trackedMessages: result.trackedMessages,
+          deleted: result.deleted,
+          failed: result.failed,
+          unresolvedCount: Array.isArray(result.unresolvedMessageIds)
+            ? result.unresolvedMessageIds.length
+            : 0,
+        })
+      );
+    }
+
     return {
       statusCode: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+      },
       body: JSON.stringify({
         success: true,
         action: "manual-clean-telegram",
