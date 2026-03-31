@@ -17,6 +17,7 @@ Module._load = function (request, ...args) {
 };
 
 const {
+  cleanTelegramOrphanMessages,
   getMaintenanceSnapshot,
   deleteTrackedTelegramMessages,
 } = require("../services/manual-maintenance");
@@ -83,6 +84,7 @@ test("Snapshot manual de mantenimiento", async (t) => {
         "android_expired",
         "pc_expired",
         "manual_telegram_cleanup_queue",
+        "telegram_sent_messages",
       ],
     });
     assert.ok(Array.isArray(snapshot.warnings));
@@ -149,10 +151,69 @@ test("Snapshot manual de mantenimiento", async (t) => {
 
     assert.strictEqual(result.trackedMessages, 1);
     assert.strictEqual(result.deleted, 1);
+    assert.strictEqual(result.deletedNotFound, 1);
     assert.strictEqual(result.failed, 0);
     assert.deepStrictEqual(result.unresolvedMessageIds, []);
     assert.deepStrictEqual(snapshot.manual_telegram_cleanup_queue, []);
     assert.deepStrictEqual(snapshot.published_games_android, []);
+
+    global.fetch = originalFetch;
+  });
+
+  await t.test("Limpia huerfanos y conserva mensajes de ofertas activas", async () => {
+    process.env.TELEGRAM_TOKEN = "test-token";
+    process.env.CHANNEL_ID = "@testchannel";
+
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (_url, opts) => {
+      const body = JSON.parse(opts.body || "{}");
+      calls.push(body.message_id);
+
+      if (body.message_id === 600) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message to delete not found",
+            }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: true }),
+        text: async () => "",
+      };
+    };
+
+    const store = createMockStore({
+      published_games_android: JSON.stringify([{ id: "com.active", messageId: 500 }]),
+      published_games_pc: JSON.stringify([]),
+      telegram_sent_messages: JSON.stringify([
+        { id: "com.active", messageId: 500, platform: "android", publishedAt: 1 },
+        { id: "com.old.one", messageId: 600, platform: "android", publishedAt: 2 },
+        { id: "pc.old", messageId: 700, platform: "pc", publishedAt: 3 },
+      ]),
+    });
+
+    const result = await cleanTelegramOrphanMessages(store);
+    const snapshot = store.snapshot();
+
+    assert.deepStrictEqual(calls.sort((a, b) => a - b), [600, 700]);
+    assert.strictEqual(result.trackedTotal, 3);
+    assert.strictEqual(result.orphanCandidates, 2);
+    assert.strictEqual(result.deleted, 2);
+    assert.strictEqual(result.deletedNotFound, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.deepStrictEqual(result.unresolvedMessageIds, []);
+    assert.deepStrictEqual(snapshot.telegram_sent_messages, [
+      { id: "com.active", messageId: 500, platform: "android", publishedAt: 1 },
+    ]);
 
     global.fetch = originalFetch;
   });

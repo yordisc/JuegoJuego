@@ -3,6 +3,7 @@
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
 const { requestWithRetry } = require("../utils/telegram");
+const { trackTelegramMessage } = require("./manual-maintenance");
 
 function getPublishedGameId(entry) {
   if (typeof entry === "string") {
@@ -249,6 +250,14 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
         const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
 
         publishedGames.push({ id, messageId, publishedAt: Date.now() });
+        if (Number.isInteger(messageId)) {
+          await trackTelegramMessage(store, {
+            id,
+            messageId,
+            platform: "android",
+            publishedAt: Date.now(),
+          });
+        }
         publishedIds.add(id);
         publishedCount += 1;
       } catch (err) {

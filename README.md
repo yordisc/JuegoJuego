@@ -147,6 +147,10 @@ Adicionalmente, se programaron dos ejecuciones semanales automaticas:
 - `manual-run-all`: lunes 01:00 UTC (primer dia de la semana a primera hora).
 - `manual-status`: lunes 01:20 UTC (snapshot posterior al mantenimiento).
 
+Tambien se programo una limpieza diaria de mensajes huerfanos en Telegram:
+
+- `clean-orphan-telegram`: todos los dias 03:30 UTC.
+
 - `manual-status`: consulta resumen de memoria/colas/expirados/backlog antes de ejecutar limpieza.
 - `manual-clean-memory`: limpia toda la memoria operativa (publicados, colas y expirados).
 - `manual-clean-telegram`: borra mensajes rastreados del bot en Telegram y sincroniza memoria.
@@ -160,10 +164,12 @@ Adicionalmente, se programaron dos ejecuciones semanales automaticas:
 
 Importante sobre `manual-status` y `manual-clean-telegram`:
 
-- Ambos operan sobre mensajes rastreados en Blobs (`published_games_android`, `published_games_pc`, `android_expired`, `pc_expired`, `manual_telegram_cleanup_queue`).
+- Ambos operan sobre mensajes rastreados en Blobs (`published_games_android`, `published_games_pc`, `android_expired`, `pc_expired`, `manual_telegram_cleanup_queue`, `telegram_sent_messages`).
 - No consultan historial completo del canal: la API del bot de Telegram no expone lectura retroactiva total del canal.
 - Si `manual-status` muestra `trackedTelegramMessages: 0`, puede seguir habiendo mensajes antiguos en el canal no registrados en memoria.
-- `manual-clean-telegram` solo borra los `messageId` que existen en memoria rastreada/backlog.
+- `manual-clean-telegram` borra los `messageId` rastreados (incluye backlog y `telegram_sent_messages`).
+- `clean-orphan-telegram` borra mensajes del bot rastreados en `telegram_sent_messages` que ya no pertenecen a ofertas actuales en memoria (`published_games_android` y `published_games_pc`).
+- Tanto `manual-clean-telegram` como `clean-orphan-telegram` incluyen `deletedNotFound`: cantidad de borrados resueltos por respuesta Telegram `message to delete not found`.
 
 Opcional: proteger con clave manual.
 

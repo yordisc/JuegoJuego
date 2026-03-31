@@ -9,6 +9,7 @@ const KEY_PC_QUEUE = "pc_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
 const KEY_PC_EXPIRED = "pc_expired";
 const KEY_MANUAL_TELEGRAM_BACKLOG = "manual_telegram_cleanup_queue";
+const KEY_TELEGRAM_SENT_MESSAGES = "telegram_sent_messages";
 
 function toId(entry) {
   if (typeof entry === "string") {
@@ -102,6 +103,95 @@ function toBacklogEntry(messageId) {
   };
 }
 
+function toTrackedMessageEntry(entry) {
+  const messageId = toMessageId(entry);
+  if (!Number.isInteger(messageId)) {
+    return null;
+  }
+
+  const id = toId(entry);
+  const platformRaw =
+    entry && typeof entry === "object" && entry.platform != null
+      ? String(entry.platform).trim().toLowerCase()
+      : "";
+  const platform = platformRaw === "pc" ? "pc" : platformRaw === "android" ? "android" : null;
+
+  const publishedAtRaw =
+    entry && typeof entry === "object" ? entry.publishedAt : null;
+  const publishedAt =
+    Number.isInteger(publishedAtRaw) && publishedAtRaw > 0
+      ? publishedAtRaw
+      : Date.now();
+
+  return {
+    id: id || null,
+    messageId,
+    platform,
+    publishedAt,
+  };
+}
+
+function dedupeTrackedMessages(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const byMessageId = new Map();
+
+  for (const item of items) {
+    const parsed = toTrackedMessageEntry(item);
+    if (!parsed) {
+      continue;
+    }
+
+    const prev = byMessageId.get(parsed.messageId);
+    if (!prev) {
+      byMessageId.set(parsed.messageId, parsed);
+      continue;
+    }
+
+    byMessageId.set(parsed.messageId, {
+      id: parsed.id || prev.id || null,
+      messageId: parsed.messageId,
+      platform: parsed.platform || prev.platform || null,
+      publishedAt:
+        Number.isInteger(prev.publishedAt) && prev.publishedAt > 0
+          ? prev.publishedAt
+          : parsed.publishedAt,
+    });
+  }
+
+  return Array.from(byMessageId.values()).sort((a, b) => {
+    if (a.publishedAt === b.publishedAt) {
+      return a.messageId - b.messageId;
+    }
+
+    return a.publishedAt - b.publishedAt;
+  });
+}
+
+async function readTrackedMessages(store) {
+  const raw = await readJsonArray(store, KEY_TELEGRAM_SENT_MESSAGES);
+  return dedupeTrackedMessages(raw);
+}
+
+async function saveTrackedMessages(store, tracked) {
+  await store.setJSON(KEY_TELEGRAM_SENT_MESSAGES, dedupeTrackedMessages(tracked));
+}
+
+async function trackTelegramMessage(store, entry) {
+  const parsed = toTrackedMessageEntry(entry);
+  if (!parsed) {
+    return { tracked: false, reason: "invalid_message_id" };
+  }
+
+  const current = await readTrackedMessages(store);
+  current.push(parsed);
+  await saveTrackedMessages(store, current);
+
+  return { tracked: true, messageId: parsed.messageId };
+}
+
 function isTelegramDeleteNotFound(status, errorText) {
   if (status !== 400) {
     return false;
@@ -178,6 +268,7 @@ async function deleteTrackedTelegramMessages(store) {
   const backlogItems = dedupeById(
     await readJsonArray(store, KEY_MANUAL_TELEGRAM_BACKLOG)
   );
+  const trackedSent = await readTrackedMessages(store);
 
   const trackedEntries = [
     ...androidPublished.map((entry) => ({
@@ -205,6 +296,11 @@ async function deleteTrackedTelegramMessages(store) {
       id: toId(entry) || `message-${toMessageId(entry)}`,
       messageId: toMessageId(entry),
     })),
+    ...trackedSent.map((entry) => ({
+      source: `tracked-${entry.platform || "unknown"}`,
+      id: toId(entry) || `message-${toMessageId(entry)}`,
+      messageId: toMessageId(entry),
+    })),
   ];
 
   const uniqueMessages = [];
@@ -223,6 +319,7 @@ async function deleteTrackedTelegramMessages(store) {
   }
 
   let deleted = 0;
+  let deletedNotFound = 0;
   let failed = 0;
   const deletedMessageIds = new Set();
   const failedMessageIds = new Set();
@@ -247,6 +344,7 @@ async function deleteTrackedTelegramMessages(store) {
 
       if (isTelegramDeleteNotFound(response.status, text)) {
         deleted += 1;
+        deletedNotFound += 1;
         deletedMessageIds.add(item.messageId);
         console.info(
           `[manual-maintenance] Mensaje ${item.messageId} ya no existe (${item.source}), se marca como resuelto.`
@@ -298,6 +396,12 @@ async function deleteTrackedTelegramMessages(store) {
     .filter(Boolean);
   await store.setJSON(KEY_MANUAL_TELEGRAM_BACKLOG, unresolvedBacklog);
 
+  const trackedRemaining = trackedSent.filter((entry) => {
+    const messageId = toMessageId(entry);
+    return messageId != null && failedMessageIds.has(messageId);
+  });
+  await saveTrackedMessages(store, trackedRemaining);
+
   const tracking = {
     scope: "memory_only",
     channelHistoryReadable: false,
@@ -307,6 +411,7 @@ async function deleteTrackedTelegramMessages(store) {
       "android_expired",
       "pc_expired",
       "manual_telegram_cleanup_queue",
+      "telegram_sent_messages",
     ],
   };
 
@@ -322,12 +427,121 @@ async function deleteTrackedTelegramMessages(store) {
     warnings,
     trackedMessages: uniqueMessages.length,
     deleted,
+    deletedNotFound,
     failed,
     unresolvedMessageIds: Array.from(failedMessageIds),
     androidPublishedRemaining: filteredAndroidPublished.length,
     pcPublishedRemaining: filteredPcPublished.length,
     androidExpiredRemaining: filteredAndroidExpired.length,
     pcExpiredRemaining: filteredPcExpired.length,
+  };
+}
+
+async function cleanTelegramOrphanMessages(store) {
+  const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+
+  const androidPublished = await getPublishedGamesList(store, "android");
+  const pcPublished = await getPublishedGamesList(store, "pc");
+  const trackedSent = await readTrackedMessages(store);
+
+  const activeIds = new Set(
+    [...androidPublished, ...pcPublished].map((entry) => toId(entry)).filter(Boolean)
+  );
+  const activeMessageIds = new Set(
+    [...androidPublished, ...pcPublished]
+      .map((entry) => toMessageId(entry))
+      .filter((messageId) => Number.isInteger(messageId))
+  );
+
+  const orphanCandidates = trackedSent.filter((entry) => {
+    const messageId = toMessageId(entry);
+    const id = toId(entry);
+
+    if (!Number.isInteger(messageId)) {
+      return false;
+    }
+
+    if (activeMessageIds.has(messageId)) {
+      return false;
+    }
+
+    if (id && activeIds.has(id)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  let deleted = 0;
+  let deletedNotFound = 0;
+  let failed = 0;
+  const deletedMessageIds = new Set();
+  const failedMessageIds = new Set();
+
+  for (const item of orphanCandidates) {
+    const messageId = toMessageId(item);
+    try {
+      const response = await requestWithRetry(
+        `${telegramBase}/deleteMessage`,
+        {
+          chat_id: process.env.CHANNEL_ID,
+          message_id: messageId,
+        }
+      );
+
+      if (response.ok) {
+        deleted += 1;
+        deletedMessageIds.add(messageId);
+        continue;
+      }
+
+      const text = await response.text().catch(() => `HTTP ${response.status}`);
+
+      if (isTelegramDeleteNotFound(response.status, text)) {
+        deleted += 1;
+        deletedNotFound += 1;
+        deletedMessageIds.add(messageId);
+        continue;
+      }
+
+      failed += 1;
+      failedMessageIds.add(messageId);
+      console.warn(
+        `[manual-maintenance] No se pudo borrar huerfano ${messageId}: ${text}`
+      );
+    } catch (err) {
+      failed += 1;
+      failedMessageIds.add(messageId);
+      console.warn(
+        `[manual-maintenance] Error de red borrando huerfano ${messageId}: ${err.message}`
+      );
+    }
+  }
+
+  const nextTracked = trackedSent.filter((entry) => {
+    const messageId = toMessageId(entry);
+    if (!Number.isInteger(messageId)) {
+      return false;
+    }
+
+    if (deletedMessageIds.has(messageId)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  await saveTrackedMessages(store, nextTracked);
+
+  return {
+    trackedTotal: trackedSent.length,
+    activeOffersTracked: activeMessageIds.size,
+    orphanCandidates: orphanCandidates.length,
+    deleted,
+    deletedNotFound,
+    failed,
+    unresolvedMessageIds: Array.from(failedMessageIds).sort((a, b) => a - b),
+    trackedRemaining: nextTracked.length,
   };
 }
 
@@ -344,6 +558,7 @@ async function getMaintenanceSnapshot(store, options = {}) {
   const androidExpired = dedupeById(await readJsonArray(store, KEY_ANDROID_EXPIRED));
   const pcExpired = dedupeById(await readJsonArray(store, KEY_PC_EXPIRED));
   const backlog = dedupeById(await readJsonArray(store, KEY_MANUAL_TELEGRAM_BACKLOG));
+  const trackedSent = await readTrackedMessages(store);
 
   const messageIds = new Set([
     ...Array.from(uniqueValidMessageIds(androidPublished)),
@@ -351,6 +566,7 @@ async function getMaintenanceSnapshot(store, options = {}) {
     ...Array.from(uniqueValidMessageIds(androidExpired)),
     ...Array.from(uniqueValidMessageIds(pcExpired)),
     ...Array.from(uniqueValidMessageIds(backlog)),
+    ...Array.from(uniqueValidMessageIds(trackedSent)),
   ]);
 
   const summary = {
@@ -373,6 +589,7 @@ async function getMaintenanceSnapshot(store, options = {}) {
       "android_expired",
       "pc_expired",
       "manual_telegram_cleanup_queue",
+      "telegram_sent_messages",
     ],
   };
 
@@ -408,12 +625,15 @@ async function getMaintenanceSnapshot(store, options = {}) {
       androidExpired: sampleFrom(androidExpired),
       pcExpired: sampleFrom(pcExpired),
       telegramBacklog: sampleFrom(backlog),
+      telegramTracked: sampleFrom(trackedSent),
     },
   };
 }
 
 module.exports = {
   clearAllMemory,
+  cleanTelegramOrphanMessages,
   deleteTrackedTelegramMessages,
   getMaintenanceSnapshot,
+  trackTelegramMessage,
 };

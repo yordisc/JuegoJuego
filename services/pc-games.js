@@ -3,6 +3,7 @@
 const KEY_PC_QUEUE = "pc_queue";
 const KEY_PC_EXPIRED = "pc_expired";
 const { requestWithRetry } = require("../utils/telegram");
+const { trackTelegramMessage } = require("./manual-maintenance");
 
 function readPositiveIntEnv(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -227,6 +228,14 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
         const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
 
         publishedGames.push({ id, messageId, publishedAt: Date.now() });
+        if (Number.isInteger(messageId)) {
+          await trackTelegramMessage(store, {
+            id,
+            messageId,
+            platform: "pc",
+            publishedAt: Date.now(),
+          });
+        }
         publishedIds.add(id);
         publishedCount += 1;
       } catch (err) {

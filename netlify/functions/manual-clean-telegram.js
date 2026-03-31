@@ -66,6 +66,7 @@ exports.handler = async (event) => {
           logLevel,
           trackedMessages: result.trackedMessages,
           deleted: result.deleted,
+          deletedNotFound: result.deletedNotFound || 0,
           failed: result.failed,
           unresolvedCount: Array.isArray(result.unresolvedMessageIds)
             ? result.unresolvedMessageIds.length

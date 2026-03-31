@@ -25,6 +25,11 @@
   # Ejecutar 1 vez al día a las 3:00 AM UTC
   schedule = "0 3 * * *"
 
+# Microservicio 5: Limpieza diaria de mensajes huerfanos en Telegram
+[functions.clean-orphan-telegram]
+  # Ejecutar 1 vez al día a las 03:30 AM UTC
+  schedule = "30 3 * * *"
+
 # Mantenimiento semanal (manual functions programadas)
 [functions.manual-run-all]
   # Primer dia de la semana (lunes) a primera hora: 01:00 UTC
