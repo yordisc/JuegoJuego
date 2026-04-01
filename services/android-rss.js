@@ -24,7 +24,13 @@ function createRssParserInstance() {
     headers: {
       "User-Agent":
         process.env.ANDROID_RSS_USER_AGENT ||
-        "Mozilla/5.0 (compatible; JuegoJuegoBot/1.0; +https://github.com/yordisc/JuegoJuego)",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      "Accept": "application/rss+xml, application/xml, application/atom+xml, */*",
+      "Accept-Encoding": "gzip, deflate",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache",
+      "DNT": "1",
     },
   });
 }
