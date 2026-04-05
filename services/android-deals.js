@@ -108,6 +108,14 @@ function dedupeById(items) {
   return result;
 }
 
+function escapeTelegramMarkdownText(value) {
+  return String(value ?? "").replace(/([_\*\[\]\(\)`\\])/g, "\\$1");
+}
+
+function escapeTelegramMarkdownUrl(value) {
+  return String(value ?? "").replace(/([\\\)\(])/g, "\\$1");
+}
+
 function buildAndroidMessage(item) {
   const title = item.title || item.id || "Android Deal";
   const score = Number.isFinite(item.score) ? item.score.toFixed(1) : "N/A";
@@ -116,12 +124,14 @@ function buildAndroidMessage(item) {
     (item.id
       ? `https://play.google.com/store/apps/details?id=${item.id}`
       : "https://play.google.com/store/apps");
+  const safeTitle = escapeTelegramMarkdownText(title);
+  const safeUrl = escapeTelegramMarkdownUrl(url);
 
   return (
     `📱 **NEW ANDROID DEAL** 📱\n\n` +
-    `🎮 *${title}*\n` +
+    `🎮 *${safeTitle}*\n` +
     `⭐ Rating: ${score}\n\n` +
-    `👉 [Get it on Google Play](${url})`
+    `👉 [Get it on Google Play](${safeUrl})`
   );
 }
 
@@ -368,4 +378,8 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   };
 }
 
-module.exports = { checkAndroidDeals };
+module.exports = {
+  checkAndroidDeals,
+  buildAndroidMessage,
+  escapeTelegramMarkdownText,
+};

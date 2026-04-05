@@ -269,7 +269,7 @@ Para evitar accidentes durante las pruebas, existe una función schedulada que *
 
 ### ¿Cómo funciona?
 
-- Corre **1 vez al día a las 3:00 AM UTC** (configurable en `netlify.toml`).
+- Corre **cada 12 horas** (configurable en `netlify.toml`).
 - Agrupa mensajes por ID de juego
 - Detecta duplicados (más de 1 copia del mismo juego)
 - Compara por antigüedad (`publishedAt`)
@@ -301,12 +301,12 @@ Cada mensaje publicado ahora almacena su timestamp:
 
 ### Cambiar el schedule
 
-Una vez por día a las 3 AM UTC es la configuración por defecto.  
+Cada 12 horas es la configuración por defecto.  
 Para cambiar, edita `netlify.toml`:
 
 ```toml
 [functions.clean-duplicates]
-  schedule = "0 3 * * *"  # Sintaxis cron
+  schedule = "0 */12 * * *"  # Sintaxis cron
 ```
 
 Algunos ejemplos:
@@ -316,3 +316,105 @@ Algunos ejemplos:
 - `"0 10 * * 0"` → cada domingo a las 10 AM UTC
 
 ---
+
+## 🔒 Mejoras de Concurrencia y Resiliencia
+
+### Sistema de Locks Distribuido
+
+Para evitar condiciones de carrera entre productores y consumidores simultáneos en Netlify Blobs, se implementó un sistema de locks distribuido basado en TTL.
+
+**Componentes:**
+
+- `utils/blob-lock.js`: Utilidad de locking con `tryAcquireBlobLock()`, `releaseBlobLock()` y patrón handler `withBlobLock()`.
+- **Integración:** Los tres puntos de acceso a estado Android (`scripts/github-android.js`, `scripts/github-android-rss.js`, `netlify/functions/check-android.js`) utilizan `withBlobLock()` con llave compartida `android_state_lock`.
+
+**Configuración (variables de entorno):**
+
+```bash
+ANDROID_STATE_LOCK_TTL_MS=90000              # Duración TTL del lock (ms, default: 90s)
+ANDROID_STATE_LOCK_RETRIES=20                # Reintentos de adquisición (default: 20)
+ANDROID_STATE_LOCK_RETRY_DELAY_MS=1000       # Delay entre reintentos (ms, default: 1s)
+```
+
+**Comportamiento:**
+
+- Cada productor/consumidor intenta adquirir lock antes de leer/escribir colas.
+- Si lock está ocupado, reintenta hasta `ANDROID_STATE_LOCK_RETRIES` veces con exponencial backoff.
+- Lock expira automáticamente tras `ANDROID_STATE_LOCK_TTL_MS` para evitar deadlocks permanentes.
+- `ANDROID_STATE_LOCK_TIMEOUT` se lanza si se agotan reintentos.
+
+**Ventajas:**
+
+- Serializa acceso a `android_queue`, `android_expired`, `published_games_android`.
+- Previene race conditions entre GitHub Actions (productores cada 20 min) y Netlify Functions (consumidor cada 20 min).
+- TTL garantiza recuperación ante fallos (token verificado al release).
+
+### Preservación de Cola (Queue Preservation)
+
+Los productores Android ahora **preservan items en reintento** en lugar de sobrescribir la cola completa.
+
+**Implementación:**
+
+- `mergeProducerQueue()` en `scripts/github-android.js` mezcla:
+  1. Juegos ya publicados (evita duplicados)
+  2. Juegos en retintento (de scrape anterior)
+  3. Juegos nuevos descobertos en este scrape
+- Mantiene estructura original con campos: `id`, `title`, `url`, `reintentos`, `lastPublishError`.
+
+**Impacto:**
+
+- Items que fallan en publish (ej. 429 de Telegram) no se pierden tras siguiente scrape.
+- Mejora throughput al reintentar sin reinventar el juego.
+
+### Escaping de Markdown (Telegram Injection Prevention)
+
+Títulos y URLs de juegos ahora se escapan según especificación Telegram Bot API MarkdownV2.
+
+**Implementación:**
+
+- `escapeTelegramMarkdownText()` en `services/android-deals.js`: Escapa caracteres especiales `_*[]()``\` en títulos.
+- `escapeTelegramMarkdownUrl()`: Escapa caracteres especiales en URLs dentro de sintaxis MarkdownV2.
+- Se aplica automáticamente en `buildAndroidMessage()` antes de enviar a Telegram.
+
+**Caracteres escapados:**
+
+```
+texto: _*[]()~`\
+url:   ()\
+```
+
+**Impacto:**
+
+- Previene errores 400 de Telegram por sintaxis inválida.
+- Permite títulos con caracteres especiales sin fallos de publicación.
+- Reduce carga de reintentos causados por caracteres incompatibles.
+
+### Retry-After Dinámico (Rate Limit Respect)
+
+La lógica de reintentos en Telegram ahora respeta el header `Retry-After` y el campo `retry_after` en respuestas de error.
+
+**Implementación:**
+
+- `getRetryDelayMs()` en `utils/telegram.js`:
+  1. Lee header `Retry-After` (formato segundos o HTTP-date).
+  2. Lee campo `retry_after` en respuesta JSON de error.
+  3. Usa exponential backoff como fallback si ambos ausentes.
+- `requestWithRetry()` ahora llama `getRetryDelayMs()` para calcular delay dinámico.
+
+**Comportamiento:**
+
+```javascript
+// Ejemplo: Telegram responde 429 con:
+// Retry-After: 30 (segundos)
+// o
+// { ok: false, parameters: { retry_after: 30 } }
+
+// Delay calculado: 30000 ms (respeta Telegram)
+// vs. exponential backoff que hubiera usado: 1000 * 2^attempt
+```
+
+**Impacto:**
+
+- Respeta rate limits de Telegram de forma adaptativa.
+- Reduce 429s al esperar el tiempo sugerido por Telegram.
+- Mejora throughput general del sistema.

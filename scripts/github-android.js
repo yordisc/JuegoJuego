@@ -5,6 +5,7 @@ if (process.env.NODE_ENV !== "production") {
 const fs = require("node:fs/promises");
 const { getStore } = require("@netlify/blobs");
 const { inferExpiredAndroidFromFeed } = require("../services/android-rss");
+const { withBlobLock } = require("../utils/blob-lock");
 
 const TITLE_KEYWORDS = [
   "deal",
@@ -156,6 +157,64 @@ function normalizeList(rawData) {
   }
 
   return result;
+}
+
+function getQueueEntryId(entry) {
+  if (typeof entry === "string") {
+    return entry.trim();
+  }
+
+  if (entry && typeof entry === "object" && entry.id != null) {
+    return String(entry.id).trim();
+  }
+
+  return "";
+}
+
+function dedupeQueueEntries(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    const id = getQueueEntryId(item);
+    if (!id || seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    if (item && typeof item === "object") {
+      result.push({ ...item, id });
+      continue;
+    }
+
+    result.push({
+      id,
+      title: id,
+      icon: null,
+      url: `https://play.google.com/store/apps/details?id=${id}`,
+      score: null,
+    });
+  }
+
+  return result;
+}
+
+function mergeProducerQueue(publishedGames = [], existingQueue = [], validDeals = []) {
+  const publishedIds = new Set(normalizeList(publishedGames).map((entry) => entry.id));
+  const existing = dedupeQueueEntries(existingQueue).filter(
+    (entry) => !publishedIds.has(entry.id)
+  );
+  const existingIds = new Set(existing.map((entry) => entry.id));
+
+  const newcomers = dedupeQueueEntries(validDeals).filter(
+    (deal) => !publishedIds.has(deal.id) && !existingIds.has(deal.id)
+  );
+
+  return dedupeQueueEntries([...existing, ...newcomers]);
 }
 
 function matchesTitle(title) {
@@ -383,23 +442,36 @@ async function buildAndroidQueues() {
   });
 
   const store = getStoreFromEnv();
-  const legacyMemory = await readJsonArray(store, KEY_ANDROID_MEMORY);
-  const publishedGames = normalizeList(legacyMemory);
-  const existingExpired = dedupeExpiredEntries(
-    await readJsonArray(store, KEY_ANDROID_EXPIRED)
-  );
-  const publishedIds = new Set(publishedGames.map((entry) => entry.id));
+  return withBlobLock(
+    store,
+    {
+      lockKey: process.env.ANDROID_STATE_LOCK_KEY || "android_state_lock",
+      owner: "producer-android",
+      ttlMs: parsePositiveInt(process.env.ANDROID_STATE_LOCK_TTL_MS, 90 * 1000),
+      retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 20),
+      retryDelayMs: parsePositiveInt(
+        process.env.ANDROID_STATE_LOCK_RETRY_DELAY_MS,
+        1000
+      ),
+    },
+    async () => {
+      const legacyMemory = await readJsonArray(store, KEY_ANDROID_MEMORY);
+      const publishedGames = normalizeList(legacyMemory);
+      const existingQueue = dedupeQueueEntries(await readJsonArray(store, KEY_ANDROID_QUEUE));
+      const existingExpired = dedupeExpiredEntries(
+        await readJsonArray(store, KEY_ANDROID_EXPIRED)
+      );
 
-  const moduleRef = await import("google-play-scraper");
-  const gplay = moduleRef.default || moduleRef;
+      const moduleRef = await import("google-play-scraper");
+      const gplay = moduleRef.default || moduleRef;
 
-  const seenCandidates = new Set();
-  const validDeals = [];
-  const perTermStats = [];
-  let detailsRequests = 0;
-  let detailsFailures = 0;
+      const seenCandidates = new Set();
+      const validDeals = [];
+      const perTermStats = [];
+      let detailsRequests = 0;
+      let detailsFailures = 0;
 
-  for (const term of SEARCH_TERMS) {
+      for (const term of SEARCH_TERMS) {
     console.log(`[producer-android] Buscando term: ${term}`);
 
     const termStat = {
@@ -489,33 +561,33 @@ async function buildAndroidQueues() {
     perTermStats.push(termStat);
     debugLog(`Termino term: ${term}`, termStat);
     await sleep(1200);
-  }
+      }
 
-  const validDealIds = new Set(validDeals.map((deal) => deal.id));
-  const expirationEnabled = parseBoolEnv(
-    process.env.ANDROID_PRODUCER_EXPIRATION_ENABLED,
-    true
-  );
+      const validDealIds = new Set(validDeals.map((deal) => deal.id));
+      const expirationEnabled = parseBoolEnv(
+        process.env.ANDROID_PRODUCER_EXPIRATION_ENABLED,
+        true
+      );
 
-  const queue = validDeals.filter((deal) => !publishedIds.has(deal.id));
-  const expirationResolution = inferSafeExpiredForProducer(
-    publishedGames,
-    Array.from(validDealIds),
-    existingExpired,
-    queue,
-    {
-      expirationEnabled,
-    }
-  );
-  const expired = expirationResolution.mergedExpired;
-  const inferredExpired = expirationResolution.inferredExpired;
-  const expirationMeta = expirationResolution.expirationMeta;
+      const queue = mergeProducerQueue(publishedGames, existingQueue, validDeals);
+      const expirationResolution = inferSafeExpiredForProducer(
+        publishedGames,
+        Array.from(validDealIds),
+        existingExpired,
+        queue,
+        {
+          expirationEnabled,
+        }
+      );
+      const expired = expirationResolution.mergedExpired;
+      const inferredExpired = expirationResolution.inferredExpired;
+      const expirationMeta = expirationResolution.expirationMeta;
 
-  await writeJsonArray(store, KEY_ANDROID_QUEUE, queue);
-  await writeJsonArray(store, KEY_ANDROID_EXPIRED, expired);
+      await writeJsonArray(store, KEY_ANDROID_QUEUE, queue);
+      await writeJsonArray(store, KEY_ANDROID_EXPIRED, expired);
 
-  const elapsedMs = Date.now() - startedAt;
-  const debugPayload = {
+      const elapsedMs = Date.now() - startedAt;
+      const debugPayload = {
     elapsedSeconds: Number((elapsedMs / 1000).toFixed(2)),
     memoryCount: publishedGames.length,
     uniqueCandidates: seenCandidates.size,
@@ -526,6 +598,7 @@ async function buildAndroidQueues() {
     inferredExpiredCount: inferredExpired.length,
     expirationReason:
       expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a",
+    queueBefore: existingQueue.length,
     queueCount: queue.length,
     expiredCount: expired.length,
     queueSamples: queue.slice(0, DEBUG_SAMPLE_SIZE).map((item) => ({
@@ -538,59 +611,63 @@ async function buildAndroidQueues() {
       messageId: item.messageId ?? null,
     })),
     perTermStats,
-  };
+      };
 
-  console.log(`[producer-android] publicados memoria: ${publishedGames.length}`);
-  console.log(`[producer-android] candidatos validos: ${validDeals.length}`);
-  console.log(`[producer-android] nuevos en queue: ${queue.length}`);
-  console.log(`[producer-android] expirados inferidos: ${inferredExpired.length}`);
-  console.log(
-    `[producer-android] razon expiracion: ${
-      expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a"
-    }`
-  );
-  console.log(`[producer-android] expirados detectados: ${expired.length}`);
-  console.log(`[producer-android] duracion total: ${formatMs(elapsedMs)}`);
-  debugLog("Resumen detallado", debugPayload);
-  console.log(
-    `[metrics] ${JSON.stringify({
-      source: "producer-android",
-      items_produced: queue.length,
-      items_expired: inferredExpired.length,
-      publish_errors: 0,
-        delete_errors: 0,
-    })}`
-  );
+      console.log(`[producer-android] publicados memoria: ${publishedGames.length}`);
+      console.log(`[producer-android] queue previa: ${existingQueue.length}`);
+      console.log(`[producer-android] candidatos validos: ${validDeals.length}`);
+      console.log(`[producer-android] queue final: ${queue.length}`);
+      console.log(`[producer-android] expirados inferidos: ${inferredExpired.length}`);
+      console.log(
+        `[producer-android] razon expiracion: ${
+          expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a"
+        }`
+      );
+      console.log(`[producer-android] expirados detectados: ${expired.length}`);
+      console.log(`[producer-android] duracion total: ${formatMs(elapsedMs)}`);
+      debugLog("Resumen detallado", debugPayload);
+      console.log(
+        `[metrics] ${JSON.stringify({
+          source: "producer-android",
+          items_produced: queue.length,
+          items_expired: inferredExpired.length,
+          publish_errors: 0,
+          delete_errors: 0,
+        })}`
+      );
 
-  await writeStepSummary(
-    [
-      "### Android Producer Debug",
-      "",
-      `- Inicio UTC: ${new Date(startedAt).toISOString()}`,
-      `- Duracion: ${formatMs(elapsedMs)}`,
-      `- Candidatos unicos: ${seenCandidates.size}`,
-      `- Solicitudes de detalle: ${detailsRequests}`,
-      `- Fallos de detalle: ${detailsFailures}`,
-      `- Deals validos: ${validDeals.length}`,
-      `- Nuevos en cola: ${queue.length}`,
-      `- Expirados inferidos: ${inferredExpired.length}`,
-      `- Expirados en store: ${expired.length}`,
-      `- Razon expiracion: ${expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a"}`,
-      "",
-      "| Termino | Raw | Unicos | Titulo OK | Detalle OK | Deals |",
-      "|---|---:|---:|---:|---:|---:|",
-      ...perTermStats.map(
-        (stat) =>
-          `| ${stat.term} | ${stat.rawResults} | ${stat.uniqueCandidates} | ${stat.titleMatches} | ${stat.detailsOk} | ${stat.dealsQualified} |`
-      ),
-      "",
-    ].join("\n")
+      await writeStepSummary(
+        [
+          "### Android Producer Debug",
+          "",
+          `- Inicio UTC: ${new Date(startedAt).toISOString()}`,
+          `- Duracion: ${formatMs(elapsedMs)}`,
+          `- Candidatos unicos: ${seenCandidates.size}`,
+          `- Solicitudes de detalle: ${detailsRequests}`,
+          `- Fallos de detalle: ${detailsFailures}`,
+          `- Deals validos: ${validDeals.length}`,
+          `- Nuevos en cola: ${queue.length}`,
+          `- Expirados inferidos: ${inferredExpired.length}`,
+          `- Expirados en store: ${expired.length}`,
+          `- Razon expiracion: ${expirationMeta && expirationMeta.reason ? expirationMeta.reason : "n/a"}`,
+          "",
+          "| Termino | Raw | Unicos | Titulo OK | Detalle OK | Deals |",
+          "|---|---:|---:|---:|---:|---:|",
+          ...perTermStats.map(
+            (stat) =>
+              `| ${stat.term} | ${stat.rawResults} | ${stat.uniqueCandidates} | ${stat.titleMatches} | ${stat.detailsOk} | ${stat.dealsQualified} |`
+          ),
+          "",
+        ].join("\n")
+      );
+    }
   );
 }
 
 module.exports = {
   buildAndroidQueues,
   inferSafeExpiredForProducer,
+  mergeProducerQueue,
 };
 
 if (require.main === module) {

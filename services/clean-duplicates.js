@@ -97,10 +97,22 @@ async function deleteMessageFromTelegram(messageId) {
       message_id: messageId,
     });
 
+    let responseText = "";
+    if (!response.ok) {
+      responseText = await response.text().catch(() => "");
+    }
+
+    const notFound =
+      response.status === 400 && /message to delete not found/i.test(responseText);
+
     return {
-      ok: response.ok,
+      ok: response.ok || notFound,
       status: response.status,
-      reason: response.ok ? "eliminado" : `HTTP ${response.status}`,
+      reason: response.ok
+        ? "eliminado"
+        : notFound
+          ? "ya no existia"
+          : `HTTP ${response.status}`,
     };
   } catch (err) {
     return {
@@ -135,7 +147,7 @@ async function cleanDuplicates(publishedGames = []) {
 
   const errors = [];
   let totalDeleted = 0;
-  const gameIdsToRemove = new Set();
+  const removedMessageIds = new Set();
 
   for (let i = 0; i < duplicates.length; i += 1) {
     const groupedMessages = duplicates[i];
@@ -157,7 +169,9 @@ async function cleanDuplicates(publishedGames = []) {
         if (result.ok) {
           console.log(`[clean-duplicates]   ✅ Mensaje ${messageId} eliminado`);
           totalDeleted += 1;
-          gameIdsToRemove.add(gameId);
+          if (Number.isInteger(messageId)) {
+            removedMessageIds.add(messageId);
+          }
         } else {
           const errorMsg = `[clean-duplicates]   ❌ Error eliminando ${messageId}: ${result.reason}`;
           console.error(errorMsg);
@@ -179,10 +193,24 @@ async function cleanDuplicates(publishedGames = []) {
     }
   }
 
+  if (removedMessageIds.size > 0 && Array.isArray(publishedGames)) {
+    const compacted = publishedGames.filter((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+
+      return !removedMessageIds.has(entry.messageId);
+    });
+
+    publishedGames.length = 0;
+    publishedGames.push(...compacted);
+  }
+
   return {
     success: errors.length === 0,
     duplicatesFound: duplicates.length,
     messagesDeleted: totalDeleted,
+    removedMessageIds: Array.from(removedMessageIds),
     errors,
   };
 }

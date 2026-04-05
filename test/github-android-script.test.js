@@ -1,7 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert");
 
-const { inferSafeExpiredForProducer } = require("../scripts/github-android");
+const {
+  inferSafeExpiredForProducer,
+  mergeProducerQueue,
+} = require("../scripts/github-android");
 
 test("Suite Script Android Producer (expiracion segura)", async (t) => {
   t.beforeEach(() => {
@@ -116,5 +119,26 @@ test("Suite Script Android Producer (expiracion segura)", async (t) => {
       { id: "com.old.expire", messageId: 11 },
     ]);
     assert.strictEqual(result.expirationMeta.reason, "ok");
+  });
+
+  await t.test("Preserva cola existente y agrega solo nuevos del descubrimiento", () => {
+    const publishedGames = [{ id: "com.already.published", messageId: 10 }];
+    const existingQueue = [
+      { id: "com.retry.keep", title: "Retry keep" },
+      { id: "com.retry.keep", title: "Duplicado legacy" },
+      { id: "com.already.published", title: "Debe salir por ya publicado" },
+    ];
+    const validDeals = [
+      { id: "com.retry.keep", title: "No debe duplicar" },
+      { id: "com.new.1", title: "Nuevo 1" },
+      { id: "com.new.2", title: "Nuevo 2" },
+    ];
+
+    const merged = mergeProducerQueue(publishedGames, existingQueue, validDeals);
+
+    assert.deepStrictEqual(
+      merged.map((item) => item.id),
+      ["com.retry.keep", "com.new.1", "com.new.2"]
+    );
   });
 });

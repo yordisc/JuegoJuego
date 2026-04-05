@@ -7,9 +7,85 @@ const {
 } = require("../../utils/memory");
 const { cleanDuplicates } = require("../../services/clean-duplicates");
 const {
+  readTrackedMessages,
+  saveTrackedMessages,
+} = require("../../services/manual-maintenance");
+const {
   createBlobStoreFromEnv,
   getBlobCredentialReport,
 } = require("../../utils/netlify-blobs");
+
+function isValidMessageId(value) {
+  return Number.isInteger(value) && value > 0;
+}
+
+function normalizeTrackedEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const id =
+    entry.id == null
+      ? ""
+      : typeof entry.id === "string"
+        ? entry.id.trim()
+        : String(entry.id).trim();
+  const messageId =
+    Number.isInteger(entry.messageId) ||
+    (typeof entry.messageId === "string" && /^\d+$/.test(entry.messageId))
+      ? Number(entry.messageId)
+      : null;
+  const platformRaw =
+    typeof entry.platform === "string" ? entry.platform.trim().toLowerCase() : "";
+  const platform = platformRaw === "pc" ? "pc" : platformRaw === "android" ? "android" : null;
+  const publishedAt = Number.isInteger(entry.publishedAt) ? entry.publishedAt : Date.now();
+
+  if (!id || !isValidMessageId(messageId)) {
+    return null;
+  }
+
+  return { id, messageId, platform, publishedAt };
+}
+
+function dedupeTrackedByMessageId(tracked = []) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of tracked) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    if (!isValidMessageId(item.messageId) || seen.has(item.messageId)) {
+      continue;
+    }
+
+    seen.add(item.messageId);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function buildPublishedStateFromTracked(tracked = [], platform) {
+  const filtered = tracked.filter(
+    (item) => item && item.platform === platform && item.id && isValidMessageId(item.messageId)
+  );
+
+  const bestByGameId = new Map();
+  for (const item of filtered) {
+    const prev = bestByGameId.get(item.id);
+    if (!prev || item.publishedAt >= prev.publishedAt) {
+      bestByGameId.set(item.id, {
+        id: item.id,
+        messageId: item.messageId,
+        publishedAt: item.publishedAt,
+      });
+    }
+  }
+
+  return Array.from(bestByGameId.values()).sort((a, b) => a.publishedAt - b.publishedAt);
+}
 
 exports.handler = async (event, context) => {
   console.log("========================================");
@@ -63,29 +139,46 @@ exports.handler = async (event, context) => {
     console.log("📖 [DEBUG 3/5] Cargando mensajes publicados...");
     const androidGames = await getPublishedGamesList(store, "android");
     const pcGames = await getPublishedGamesList(store, "pc");
+    const trackedMessages = await readTrackedMessages(store);
+
+    const trackedAndroid = trackedMessages
+      .map((entry) => normalizeTrackedEntry(entry))
+      .filter((entry) => entry && entry.platform === "android");
+    const trackedPc = trackedMessages
+      .map((entry) => normalizeTrackedEntry(entry))
+      .filter((entry) => entry && entry.platform === "pc");
 
     console.log(`   - Android: ${androidGames.length} mensajes en memoria`);
     console.log(`   - PC: ${pcGames.length} mensajes en memoria`);
+    console.log(
+      `   - Tracked Android: ${trackedAndroid.length} | Tracked PC: ${trackedPc.length}`
+    );
 
     // --- PASO 4: LIMPIAR DUPLICADOS ---
     console.log("🧹 [DEBUG 4/5] Ejecutando limpieza de duplicados...");
 
     console.log("   📱 Limpiando Android...");
-    const androidResult = await cleanDuplicates(androidGames);
+    const androidResult = await cleanDuplicates(trackedAndroid);
     console.log(`   ✅ Android: ${androidResult.messagesDeleted} mensajes eliminados`);
 
     console.log("   🖥️  Limpiando PC...");
-    const pcResult = await cleanDuplicates(pcGames);
+    const pcResult = await cleanDuplicates(trackedPc);
     console.log(`   ✅ PC: ${pcResult.messagesDeleted} mensajes eliminados`);
+
+    const remainingTracked = dedupeTrackedByMessageId([...trackedAndroid, ...trackedPc]);
+    await saveTrackedMessages(store, remainingTracked);
+
+    const syncedAndroidGames = buildPublishedStateFromTracked(remainingTracked, "android");
+    const syncedPcGames = buildPublishedStateFromTracked(remainingTracked, "pc");
 
     // --- PASO 5: GUARDAR ESTADO ACTUALIZADO ---
     console.log("💾 [DEBUG 5/5] Guardando estado actualizado en Blobs...");
 
-    await savePublishedGamesList(store, androidGames, "android");
-    console.log(`   ✅ Android: ${androidGames.length} mensajes guardados`);
+    await savePublishedGamesList(store, syncedAndroidGames, "android");
+    console.log(`   ✅ Android: ${syncedAndroidGames.length} mensajes guardados`);
 
-    await savePublishedGamesList(store, pcGames, "pc");
-    console.log(`   ✅ PC: ${pcGames.length} mensajes guardados`);
+    await savePublishedGamesList(store, syncedPcGames, "pc");
+    console.log(`   ✅ PC: ${syncedPcGames.length} mensajes guardados`);
 
     // --- MÉTRICAS FINALES ---
     const totalErrors = androidResult.errors.length + pcResult.errors.length;

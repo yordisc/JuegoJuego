@@ -635,5 +635,7 @@ module.exports = {
   cleanTelegramOrphanMessages,
   deleteTrackedTelegramMessages,
   getMaintenanceSnapshot,
+  readTrackedMessages,
+  saveTrackedMessages,
   trackTelegramMessage,
 };

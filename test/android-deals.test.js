@@ -1,6 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { checkAndroidDeals } = require("../services/android-deals");
+const {
+  checkAndroidDeals,
+  buildAndroidMessage,
+  escapeTelegramMarkdownText,
+} = require("../services/android-deals");
 
 process.env.TELEGRAM_TOKEN = "test-token";
 process.env.CHANNEL_ID = "@testchannel";
@@ -277,5 +281,28 @@ test("Suite Android Consumer", async (t) => {
     assert.strictEqual(result.expiredCount, 1);
     assert.strictEqual(publishedGames.length, 0);
     assert.deepStrictEqual(snapshot.android_expired, []);
+  });
+
+  await t.test("Escapa caracteres Markdown en titulos", () => {
+    const raw = "Super_[Deal]* (VIP)`\\";
+    const escaped = escapeTelegramMarkdownText(raw);
+
+    assert.strictEqual(escaped, "Super\\_\\[Deal\\]\\* \\(VIP\\)\\`\\\\");
+  });
+
+  await t.test("buildAndroidMessage genera enlace y titulo escapados", () => {
+    const message = buildAndroidMessage({
+      id: "com.markdown.test",
+      title: "A_[B]* (C)",
+      score: 4.8,
+      url: "https://play.google.com/store/apps/details?id=com.markdown.test&ref=(promo)",
+    });
+
+    assert.ok(message.includes("*A\\_\\[B\\]\\* \\(C\\)*"));
+    assert.ok(
+      message.includes(
+        "[Get it on Google Play](https://play.google.com/store/apps/details?id=com.markdown.test&ref=\\(promo\\))"
+      )
+    );
   });
 });

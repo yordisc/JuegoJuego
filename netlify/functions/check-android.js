@@ -10,6 +10,12 @@ const {
   createBlobStoreFromEnv,
   getBlobCredentialReport,
 } = require("../../utils/netlify-blobs");
+const { withBlobLock } = require("../../utils/blob-lock");
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 exports.handler = async (event, context) => {
   console.log("========================================");
@@ -58,21 +64,36 @@ exports.handler = async (event, context) => {
     // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
     console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
-    const publishedGames = await getPublishedGamesList(store);
-    console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
+    await withBlobLock(
+      store,
+      {
+        lockKey: process.env.ANDROID_STATE_LOCK_KEY || "android_state_lock",
+        owner: "consumer-android",
+        ttlMs: parsePositiveInt(process.env.ANDROID_STATE_LOCK_TTL_MS, 90 * 1000),
+        retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 20),
+        retryDelayMs: parsePositiveInt(
+          process.env.ANDROID_STATE_LOCK_RETRY_DELAY_MS,
+          1000
+        ),
+      },
+      async () => {
+        const publishedGames = await getPublishedGamesList(store);
+        console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
 
-    // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log("📡 [DEBUG 3/4] Procesando solo android_queue...");
-    await checkAndroidDeals(store, publishedGames, {
-      processQueue: true,
-      processExpired: false,
-    });
-    console.log("   - Cola Android procesada (publicaciones).");
+        // --- PASO 3: LÓGICA DE NEGOCIO ---
+        console.log("📡 [DEBUG 3/4] Procesando solo android_queue...");
+        await checkAndroidDeals(store, publishedGames, {
+          processQueue: true,
+          processExpired: false,
+        });
+        console.log("   - Cola Android procesada (publicaciones).");
 
-    // --- PASO 4: GUARDADO DE ESTADO ---
-    console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
-    await savePublishedGamesList(store, publishedGames, "android");
-    console.log("   - Memoria actualizada exitosamente.");
+        // --- PASO 4: GUARDADO DE ESTADO ---
+        console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
+        await savePublishedGamesList(store, publishedGames, "android");
+        console.log("   - Memoria actualizada exitosamente.");
+      }
+    );
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
     console.log("========================================");

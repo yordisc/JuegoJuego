@@ -7,7 +7,76 @@ const {
   findDuplicates,
   sortByAge,
   getMessagesToDelete,
+  cleanDuplicates,
 } = require("../services/clean-duplicates");
+
+process.env.TELEGRAM_TOKEN = "test-token";
+process.env.CHANNEL_ID = "@testchannel";
+
+const originalFetch = global.fetch;
+
+test("clean-duplicates: cleanDuplicates elimina duplicados y compacta memoria", async () => {
+  try {
+    global.fetch = async (url) => {
+      if (url.includes("deleteMessage")) {
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }
+
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    };
+
+    const published = [
+      { id: "game1", messageId: 100, publishedAt: 1000 },
+      { id: "game1", messageId: 101, publishedAt: 2000 },
+      { id: "game2", messageId: 200, publishedAt: 3000 },
+    ];
+
+    const result = await cleanDuplicates(published);
+
+    assert.strictEqual(result.messagesDeleted, 1);
+    assert.strictEqual(result.errors.length, 0);
+    assert.strictEqual(published.length, 2);
+    assert.strictEqual(published.some((x) => x.messageId === 100), false);
+    assert.strictEqual(published.some((x) => x.messageId === 101), true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("clean-duplicates: cleanDuplicates trata not found como resuelto", async () => {
+  try {
+    global.fetch = async (url) => {
+      if (url.includes("deleteMessage")) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message to delete not found",
+            }),
+        };
+      }
+
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    };
+
+    const published = [
+      { id: "game1", messageId: 100, publishedAt: 1000 },
+      { id: "game1", messageId: 101, publishedAt: 2000 },
+    ];
+
+    const result = await cleanDuplicates(published);
+
+    assert.strictEqual(result.messagesDeleted, 1);
+    assert.strictEqual(result.errors.length, 0);
+    assert.strictEqual(published.length, 1);
+    assert.strictEqual(published[0].messageId, 101);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
 
 test("clean-duplicates: groupMessagesByGameId agrupa correctamente", () => {
   const games = [
