@@ -7,6 +7,8 @@ const { getStore } = require("@netlify/blobs");
 const KEY_PC_MEMORY = "published_games_pc";
 const KEY_PC_QUEUE = "pc_queue";
 const KEY_PC_EXPIRED = "pc_expired";
+const GAMERPOWER_PC_FREE_GAMES_URL =
+  "https://www.gamerpower.com/api/filter?platform=pc&type=game";
 
 function normalizeEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
@@ -97,9 +99,7 @@ function getStoreFromEnv() {
 }
 
 async function fetchPcGiveaways() {
-  const response = await fetch(
-    "https://www.gamerpower.com/api/giveaways?platform=pc"
-  );
+  const response = await fetch(GAMERPOWER_PC_FREE_GAMES_URL);
 
   if (!response.ok) {
     throw new Error(`GamerPower devolvio HTTP ${response.status}`);

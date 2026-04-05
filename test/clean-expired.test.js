@@ -157,10 +157,14 @@ test("Suite Clean Expired Function", async (t) => {
       pc_expired: [{ id: "200", messageId: 22 }],
     });
 
-    global.fetch = async () => ({
+    let requestedUrl = "";
+    global.fetch = async (url) => {
+      requestedUrl = String(url || "");
+      return {
       ok: true,
       json: async () => [{ id: "100" }],
-    });
+      };
+    };
 
     const result = await handler();
     const setCalls = mockStore.getSetCalls();
@@ -186,6 +190,9 @@ test("Suite Clean Expired Function", async (t) => {
     assert.deepStrictEqual(pcExpiredWrite.value, [
       { id: "200", messageId: 22 },
     ]);
+    assert.ok(requestedUrl.includes("/api/filter"));
+    assert.ok(requestedUrl.includes("platform=pc"));
+    assert.ok(requestedUrl.includes("type=game"));
   });
 
   await t.test("Android: no limpia expirados que tambien estan en android_queue", async () => {
@@ -223,5 +230,28 @@ test("Suite Clean Expired Function", async (t) => {
     assert.deepStrictEqual(androidExpiredWrite.value, [
       { id: "com.android.old", messageId: 32 },
     ]);
+  });
+
+  await t.test("PC: normaliza IDs con espacios para evitar falsos expirados", async () => {
+    memoryByPlatform.pc = [{ id: " 100 ", messageId: 50 }];
+
+    mockStore = createStore({
+      android_queue: [],
+      android_expired: [],
+      pc_expired: [],
+    });
+
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => [{ id: "100" }],
+    });
+
+    const result = await handler();
+    const setCalls = mockStore.getSetCalls();
+    const pcExpiredWrite = setCalls.find((row) => row.key === "pc_expired");
+
+    assert.strictEqual(result.statusCode, 200);
+    assert.ok(pcExpiredWrite);
+    assert.deepStrictEqual(pcExpiredWrite.value, []);
   });
 });

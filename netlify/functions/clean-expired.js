@@ -15,14 +15,29 @@ const {
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
 const KEY_PC_EXPIRED = "pc_expired";
+const GAMERPOWER_PC_FREE_GAMES_URL =
+  "https://www.gamerpower.com/api/filter?platform=pc&type=game";
+
+function normalizeId(value) {
+  if (value == null) {
+    return "";
+  }
+
+  const normalized = String(value).trim();
+  if (!normalized || normalized === "undefined" || normalized === "null") {
+    return "";
+  }
+
+  return normalized;
+}
 
 function getEntryId(entry) {
   if (typeof entry === "string") {
-    return entry;
+    return normalizeId(entry);
   }
 
   if (entry && typeof entry === "object" && entry.id != null) {
-    return String(entry.id);
+    return normalizeId(entry.id);
   }
 
   return "";
@@ -82,9 +97,7 @@ async function readJsonArray(store, key) {
 }
 
 async function fetchActivePcIds() {
-  const response = await fetch(
-    "https://www.gamerpower.com/api/giveaways?platform=pc"
-  );
+  const response = await fetch(GAMERPOWER_PC_FREE_GAMES_URL);
 
   if (!response.ok) {
     throw new Error(`GamerPower devolvio HTTP ${response.status}`);
@@ -95,7 +108,11 @@ async function fetchActivePcIds() {
     return new Set();
   }
 
-  return new Set(data.map((item) => String(item.id)).filter(Boolean));
+  return new Set(
+    data
+      .map((item) => (item && typeof item === "object" ? normalizeId(item.id) : ""))
+      .filter(Boolean)
+  );
 }
 
 exports.handler = async () => {
