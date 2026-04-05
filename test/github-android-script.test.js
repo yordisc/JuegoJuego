@@ -84,6 +84,7 @@ test("Suite Script Android Producer (expiracion segura)", async (t) => {
 
     const existingExpired = [
       { id: "com.keep.prev", messageId: 99 },
+      { id: "com.old.expire", messageId: 11 },
       { id: "com.in.queue", messageId: 12 },
     ];
 
@@ -110,13 +111,13 @@ test("Suite Script Android Producer (expiracion segura)", async (t) => {
     );
 
     assert.deepStrictEqual(result.inferredExpired, [
-      { id: "com.old.expire", messageId: 11 },
-      { id: "com.in.queue", messageId: 12 },
+      { id: "com.old.expire", messageId: 11, source: "playstore" },
+      { id: "com.in.queue", messageId: 12, source: "playstore" },
     ]);
 
     assert.deepStrictEqual(result.mergedExpired, [
       { id: "com.keep.prev", messageId: 99 },
-      { id: "com.old.expire", messageId: 11 },
+      { id: "com.old.expire", messageId: 11, source: "playstore" },
     ]);
     assert.strictEqual(result.expirationMeta.reason, "ok");
   });

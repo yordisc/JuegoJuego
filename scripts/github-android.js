@@ -323,10 +323,20 @@ function toExpiredEntry(entry) {
     return null;
   }
 
-  return {
+  const source = typeof entry.source === "string" && entry.source.trim()
+    ? entry.source.trim()
+    : null;
+
+  const result = {
     id: normalized.id,
     messageId: normalized.messageId,
   };
+
+  if (source) {
+    result.source = source;
+  }
+
+  return result;
 }
 
 function dedupeExpiredEntries(items) {
@@ -334,20 +344,30 @@ function dedupeExpiredEntries(items) {
     return [];
   }
 
-  const seen = new Set();
-  const result = [];
+  const byId = new Map();
 
   for (const item of items) {
-    const normalized = toExpiredEntry(item);
-    if (!normalized || seen.has(normalized.id)) {
+    const candidate = toExpiredEntry(item);
+    if (!candidate) {
       continue;
     }
 
-    seen.add(normalized.id);
-    result.push(normalized);
+    const existing = byId.get(candidate.id);
+    if (!existing) {
+      byId.set(candidate.id, candidate);
+      continue;
+    }
+
+    if (existing.messageId == null && candidate.messageId != null) {
+      existing.messageId = candidate.messageId;
+    }
+
+    if (!existing.source && candidate.source) {
+      existing.source = candidate.source;
+    }
   }
 
-  return result;
+  return Array.from(byId.values());
 }
 
 function inferSafeExpiredForProducer(
@@ -390,6 +410,7 @@ function inferSafeExpiredForProducer(
         options.maxExpireRatio,
         parseRatio(process.env.ANDROID_PRODUCER_MAX_EXPIRE_RATIO, 0.35)
       ),
+      source: "playstore",
       withMeta: true,
     }
   );

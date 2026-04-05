@@ -1,19 +1,19 @@
-name: Producer Android Queue
+name: Android Expiration Scanner
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   schedule:
-    - cron: "7,27,47 * * * *"
+    - cron: "23 2,14 * * *"
 
 concurrency:
-  group: producer-android-queue
+  group: producer-android-expiration
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  produce-android-queue:
+  scan-android-expired:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,14 +29,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Android queues
+      - name: Revalidate Android expirations
         env:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_API_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
-          ANDROID_PRODUCER_DEBUG: "1"
-          ANDROID_PRODUCER_DEBUG_SAMPLES: "5"
-          ANDROID_PRODUCER_EXPIRATION_ENABLED: "false"
-          ANDROID_PRODUCER_MIN_ACTIVE_IDS: "10"
-          ANDROID_PRODUCER_EXPIRATION_GRACE_HOURS: "24"
-          ANDROID_PRODUCER_MAX_EXPIRE_RATIO: "0.35"
-        run: node scripts/github-android.js
+          ANDROID_EXPIRATION_SCAN_MAX_EXPIRE_RATIO: "0.35"
+          ANDROID_EXPIRATION_SCAN_DETAILS_DELAY_MS: "750"
+          ANDROID_EXPIRATION_SCAN_SKIP_CLEANUP: "true"
+        run: npm run produce:android:expired

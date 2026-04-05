@@ -11,12 +11,18 @@ const {
   createBlobStoreFromEnv,
   getBlobCredentialReport,
 } = require("../../utils/netlify-blobs");
+const { withBlobLock } = require("../../utils/blob-lock");
 
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
 const KEY_PC_EXPIRED = "pc_expired";
 const GAMERPOWER_PC_FREE_GAMES_URL =
   "https://www.gamerpower.com/api/filter?platform=pc&type=game";
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function normalizeId(value) {
   if (value == null) {
@@ -60,25 +66,55 @@ function getEntryMessageId(entry) {
   return null;
 }
 
+function getEntrySource(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  return typeof entry.source === "string" && entry.source.trim()
+    ? entry.source.trim()
+    : null;
+}
+
 function dedupeEntries(items) {
   if (!Array.isArray(items)) {
     return [];
   }
 
-  const seen = new Set();
-  const result = [];
+  const byId = new Map();
 
   for (const item of items) {
     const id = getEntryId(item);
-    if (!id || seen.has(id)) {
+    if (!id) {
       continue;
     }
 
-    seen.add(id);
-    result.push({ id, messageId: getEntryMessageId(item) });
+    const candidate = {
+      id,
+      messageId: getEntryMessageId(item),
+    };
+
+    const source = getEntrySource(item);
+    if (source) {
+      candidate.source = source;
+    }
+
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, candidate);
+      continue;
+    }
+
+    if (existing.messageId == null && candidate.messageId != null) {
+      existing.messageId = candidate.messageId;
+    }
+
+    if (!existing.source && candidate.source) {
+      existing.source = candidate.source;
+    }
   }
 
-  return result;
+  return Array.from(byId.values());
 }
 
 async function readJsonArray(store, key) {
@@ -161,65 +197,80 @@ exports.handler = async () => {
     console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
 
-    const androidPublished = await getPublishedGamesList(store, "android");
-    const pcPublished = await getPublishedGamesList(store, "pc");
-    const androidQueue = dedupeEntries(await readJsonArray(store, KEY_ANDROID_QUEUE));
-    const androidExpired = dedupeEntries(await readJsonArray(store, KEY_ANDROID_EXPIRED));
-    const pcExpired = dedupeEntries(await readJsonArray(store, KEY_PC_EXPIRED));
+    await withBlobLock(
+      store,
+      {
+        lockKey: process.env.ANDROID_STATE_LOCK_KEY || "android_state_lock",
+        owner: "clean-expired",
+        ttlMs: parsePositiveInt(process.env.ANDROID_STATE_LOCK_TTL_MS, 90 * 1000),
+        retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 20),
+        retryDelayMs: parsePositiveInt(
+          process.env.ANDROID_STATE_LOCK_RETRY_DELAY_MS,
+          1000
+        ),
+      },
+      async () => {
+        const androidPublished = await getPublishedGamesList(store, "android");
+        const pcPublished = await getPublishedGamesList(store, "pc");
+        const androidQueue = dedupeEntries(await readJsonArray(store, KEY_ANDROID_QUEUE));
+        const androidExpired = dedupeEntries(await readJsonArray(store, KEY_ANDROID_EXPIRED));
+        const pcExpired = dedupeEntries(await readJsonArray(store, KEY_PC_EXPIRED));
 
-    const androidQueueIds = new Set(androidQueue.map((entry) => entry.id));
-    const safeAndroidExpired = androidExpired.filter(
-      (entry) => !androidQueueIds.has(entry.id)
+        const androidQueueIds = new Set(androidQueue.map((entry) => entry.id));
+        const safeAndroidExpired = androidExpired.filter(
+          (entry) => !androidQueueIds.has(entry.id)
+        );
+
+      let pcCleanupEnabled = true;
+      let activePcIds = new Set();
+      let mergedPcExpired = pcExpired;
+
+        try {
+          activePcIds = await fetchActivePcIds();
+          const inferredPcExpired = dedupeEntries(
+            pcPublished.filter((entry) => !activePcIds.has(getEntryId(entry)))
+          );
+          mergedPcExpired = dedupeEntries([...pcExpired, ...inferredPcExpired]).filter(
+            (entry) => !activePcIds.has(entry.id)
+          );
+        } catch (err) {
+          pcCleanupEnabled = false;
+          console.warn(
+            `[clean-expired] WARN no se pudo validar activos de PC (${err.message}). Se omite limpieza PC para evitar falsos positivos.`
+          );
+        }
+
+        await store.setJSON(KEY_ANDROID_EXPIRED, safeAndroidExpired);
+        if (pcCleanupEnabled) {
+          await store.setJSON(KEY_PC_EXPIRED, mergedPcExpired);
+        }
+
+        console.log(`   - Android memoria actual: ${androidPublished.length}`);
+        console.log(`   - PC memoria actual: ${pcPublished.length}`);
+        console.log(`   - Android expirados seguros: ${safeAndroidExpired.length}`);
+        console.log(
+          `   - PC expirados a limpiar: ${
+            pcCleanupEnabled ? String(mergedPcExpired.length) : "OMITIDO (modo seguro)"
+          }`
+        );
+
+        console.log("📡 [DEBUG 3/4] Limpiando expirados de Android y PC...");
+        await checkAndroidDeals(store, androidPublished, {
+          processQueue: false,
+          processExpired: true,
+        });
+        await checkPCGames(store, pcPublished, {
+          processQueue: false,
+          processExpired: pcCleanupEnabled,
+        });
+        console.log("   - Expirados procesados en ambas plataformas.");
+
+        console.log("💾 [DEBUG 4/4] Guardando memoria actualizada...");
+        await savePublishedGamesList(store, androidPublished, "android");
+        await savePublishedGamesList(store, pcPublished, "pc");
+        console.log("   - Memorias Android/PC actualizadas.");
+      }
     );
-
-    let pcCleanupEnabled = true;
-    let activePcIds = new Set();
-    let mergedPcExpired = pcExpired;
-
-    try {
-      activePcIds = await fetchActivePcIds();
-      const inferredPcExpired = dedupeEntries(
-        pcPublished.filter((entry) => !activePcIds.has(getEntryId(entry)))
-      );
-      mergedPcExpired = dedupeEntries([...pcExpired, ...inferredPcExpired]).filter(
-        (entry) => !activePcIds.has(entry.id)
-      );
-    } catch (err) {
-      pcCleanupEnabled = false;
-      console.warn(
-        `[clean-expired] WARN no se pudo validar activos de PC (${err.message}). Se omite limpieza PC para evitar falsos positivos.`
-      );
-    }
-
-    await store.setJSON(KEY_ANDROID_EXPIRED, safeAndroidExpired);
-    if (pcCleanupEnabled) {
-      await store.setJSON(KEY_PC_EXPIRED, mergedPcExpired);
-    }
-
-    console.log(`   - Android memoria actual: ${androidPublished.length}`);
-    console.log(`   - PC memoria actual: ${pcPublished.length}`);
-    console.log(`   - Android expirados seguros: ${safeAndroidExpired.length}`);
-    console.log(
-      `   - PC expirados a limpiar: ${
-        pcCleanupEnabled ? String(mergedPcExpired.length) : "OMITIDO (modo seguro)"
-      }`
-    );
-
-    console.log("📡 [DEBUG 3/4] Limpiando expirados de Android y PC...");
-    await checkAndroidDeals(store, androidPublished, {
-      processQueue: false,
-      processExpired: true,
-    });
-    await checkPCGames(store, pcPublished, {
-      processQueue: false,
-      processExpired: pcCleanupEnabled,
-    });
-    console.log("   - Expirados procesados en ambas plataformas.");
-
-    console.log("💾 [DEBUG 4/4] Guardando memoria actualizada...");
-    await savePublishedGamesList(store, androidPublished, "android");
-    await savePublishedGamesList(store, pcPublished, "pc");
-    console.log("   - Memorias Android/PC actualizadas.");
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
     console.log("========================================");

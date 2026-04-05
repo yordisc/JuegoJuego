@@ -61,4 +61,21 @@ ANDROID_RSS_EXPIRATION_GRACE_HOURS=24
 ANDROID_RSS_MIN_ACTIVE_IDS=10
 ANDROID_RSS_MAX_EXPIRE_RATIO=0.35
 ANDROID_RSS_DETAILS_DELAY_MS=250
+ANDROID_RSS_SKIP_CLEANUP=true
 ```
+
+Para el productor Android principal (búsqueda directa) en Actions:
+
+```env
+ANDROID_PRODUCER_EXPIRATION_ENABLED=false
+```
+
+Para el scanner de expirados Android en GitHub Actions:
+
+```env
+ANDROID_EXPIRATION_SCAN_MAX_EXPIRE_RATIO=0.35
+ANDROID_EXPIRATION_SCAN_DETAILS_DELAY_MS=750
+ANDROID_EXPIRATION_SCAN_SKIP_CLEANUP=true
+```
+
+Cadencia recomendada: 2 veces al dia. Si la cantidad de juegos publicados crece mucho o Google Play empieza a responder lento, baja la frecuencia a 1 vez al dia o aumenta el `detailsDelayMs`.

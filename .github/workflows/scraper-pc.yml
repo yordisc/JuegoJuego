@@ -3,7 +3,7 @@ name: Producer PC Queue
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "17 */4 * * *"
 
 concurrency:
   group: producer-pc-queue

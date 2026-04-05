@@ -202,7 +202,9 @@ test("Suite Android RSS Producer", async (t) => {
       now,
     });
 
-    assert.deepStrictEqual(expired, [{ id: "com.to.expire", messageId: 11 }]);
+    assert.deepStrictEqual(expired, [
+      { id: "com.to.expire", messageId: 11, source: "rss" },
+    ]);
   });
 
   await t.test("No infiere expirados con feed insuficiente o dentro de gracia", () => {
@@ -225,7 +227,9 @@ test("Suite Android RSS Producer", async (t) => {
       { minActiveIds: 10, graceHours: 24, now }
     );
 
-    assert.deepStrictEqual(expiredByGrace, [{ id: "com.old", messageId: 88 }]);
+    assert.deepStrictEqual(expiredByGrace, [
+      { id: "com.old", messageId: 88, source: "rss" },
+    ]);
   });
 
   await t.test("No infiere expirados si excede el ratio maximo permitido", () => {

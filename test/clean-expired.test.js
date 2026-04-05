@@ -80,6 +80,12 @@ Module._load = function (request, parent, isMain) {
     };
   }
 
+  if (request === "../../utils/blob-lock") {
+    return {
+      withBlobLock: async (_store, _options, handler) => handler(),
+    };
+  }
+
   return originalLoad.call(this, request, parent, isMain);
 };
 

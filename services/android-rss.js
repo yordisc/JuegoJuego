@@ -394,6 +394,9 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
     options.graceHours,
     readPositiveInt(process.env.ANDROID_RSS_EXPIRATION_GRACE_HOURS, 24)
   );
+  const source = typeof options.source === "string" && options.source.trim()
+    ? options.source.trim()
+    : "rss";
   const maxExpireRatio = readRatio(
     options.maxExpireRatio,
     readRatio(process.env.ANDROID_RSS_MAX_EXPIRE_RATIO, 0.35)
@@ -444,7 +447,7 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
       continue;
     }
 
-    expired.push({ id: entry.id, messageId: entry.messageId ?? null });
+    expired.push({ id: entry.id, messageId: entry.messageId ?? null, source });
   }
 
   const normalizedExpired = normalizeList(expired, (entry) => {
@@ -470,7 +473,15 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
         ? Number(rawMessageId)
         : null;
 
-    return { id, messageId };
+    const source = typeof entry.source === "string" && entry.source.trim()
+      ? entry.source.trim()
+      : null;
+    const normalized = { id, messageId };
+    if (source) {
+      normalized.source = source;
+    }
+
+    return normalized;
   });
 
   if (maxExpireRatio < 1) {

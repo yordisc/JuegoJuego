@@ -94,7 +94,10 @@ test("Suite Script Android RSS (Actions)", async (t) => {
   t.beforeEach(() => {
     mockStore = createStore({
       android_queue: [{ id: "com.safe.in.queue", messageId: 101 }],
-      android_expired: [{ id: "com.keep.expired", messageId: 202 }],
+      android_expired: [
+        { id: "com.keep.expired", messageId: 202 },
+        { id: "com.old", messageId: 303 },
+      ],
     });
     mockPublishedGames = [{ id: "com.old", messageId: 303, publishedAt: 1000 }];
     mockRssResult = {
@@ -107,8 +110,8 @@ test("Suite Script Android RSS (Actions)", async (t) => {
     };
     mockExpirationResult = {
       expired: [
-        { id: "com.old", messageId: 303 },
-        { id: "com.safe.in.queue", messageId: 101 },
+        { id: "com.old", messageId: 303, source: "rss" },
+        { id: "com.safe.in.queue", messageId: 101, source: "rss" },
       ],
       meta: { reason: "ok", blockedByRatio: false },
     };
@@ -134,7 +137,7 @@ test("Suite Script Android RSS (Actions)", async (t) => {
     const snapshot = mockStore.snapshot();
     assert.deepStrictEqual(snapshot.android_expired, [
       { id: "com.keep.expired", messageId: 202 },
-      { id: "com.old", messageId: 303 },
+      { id: "com.old", messageId: 303, source: "rss" },
     ]);
 
     assert.strictEqual(cleanupCalls.length, 0);

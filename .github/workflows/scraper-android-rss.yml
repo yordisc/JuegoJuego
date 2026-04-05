@@ -3,7 +3,7 @@ name: Producer Android RSS Queue
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "13 */4 * * *"
 
 concurrency:
   group: producer-android-rss-queue
@@ -29,12 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Android RSS queue + cleanup expired
+      - name: Build Android RSS queue + infer expired
         env:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_API_TOKEN: ${{ secrets.NETLIFY_API_TOKEN }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           ANDROID_RSS_FEED_URL: "https://www.reddit.com/r/googleplaydeals/new.rss"
           ANDROID_RSS_MAX_ITEMS: "50"
           ANDROID_RSS_EXPIRATION_ENABLED: "true"
@@ -42,5 +40,5 @@ jobs:
           ANDROID_RSS_MIN_ACTIVE_IDS: "10"
           ANDROID_RSS_MAX_EXPIRE_RATIO: "0.35"
           ANDROID_RSS_DETAILS_DELAY_MS: "250"
-          ANDROID_MAX_DELETE_PER_RUN: "15"
+          ANDROID_RSS_SKIP_CLEANUP: "true"
         run: npm run produce:android:rss

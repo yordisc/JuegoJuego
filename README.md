@@ -58,21 +58,31 @@ El scraping pesado ya no corre dentro de Netlify Functions.
 
 1. **Productor (GitHub Actions):**
    - Ejecuta `scripts/github-android.js` y `scripts/github-pc.js`.
-   - Escribe colas en Blobs: `android_queue`, `android_expired`, `pc_queue`, `pc_expired`.
+
+- Escribe colas en Blobs: `android_queue`, `pc_queue`, `pc_expired`.
+
 2. **Productor RSS (GitHub Actions):**
 
 - Ejecuta `scripts/github-android-rss.js` cada 4 horas.
 - Lee `https://www.reddit.com/r/googleplaydeals/new.rss` y agrega solo juegos gratis nuevos a `android_queue`.
 - Cada ID del feed se valida en Google Play (`google-play-scraper`): categoria de juego (`GAME_*`) + precio actual gratis + precio original mayor a 0.
 - Deduplica contra `published_games_android` y contra la cola ya existente.
-- En la misma corrida infiere expirados desde el feed, llena `android_expired` y elimina mensajes expirados en Telegram.
+- En la misma corrida infiere expirados desde el feed y llena `android_expired`.
 - Incluye guardas anti-falsos positivos: `ANDROID_RSS_MIN_ACTIVE_IDS`, `ANDROID_RSS_EXPIRATION_GRACE_HOURS` y `ANDROID_RSS_MAX_EXPIRE_RATIO`.
 - Incluye control de ritmo para validacion de detalles: `ANDROID_RSS_DETAILS_DELAY_MS`.
 
-3. **Consumidor (Netlify Functions):**
+3. **Scanner de Expirados Android (GitHub Actions):**
+
+- Ejecuta `scripts/github-android-expired.js` dos veces al dia.
+- Recorre `published_games_android` uno por uno en Google Play para verificar si siguen gratis.
+- Si un juego ya no esta gratis, se agrega a `android_expired`.
+- Mantiene el RSS como segunda senal de expiracion: `android_expired` puede recibir entradas desde el feed y desde esta verificacion directa.
+- Usa guardas operativas para evitar falsos positivos masivos y permite desactivar la limpieza inmediata si hace falta.
+
+4. **Consumidor (Netlify Functions):**
 
 - `check-android` y `check-pc` publican novedades desde sus colas.
-- `clean-expired` elimina en Telegram los juegos expirados de Android y PC.
+- `clean-expired` es el unico proceso que elimina en Telegram los juegos expirados de Android y PC.
 - Cada corrida limpia sus colas procesadas al finalizar.
 
 Métricas mínimas en logs:

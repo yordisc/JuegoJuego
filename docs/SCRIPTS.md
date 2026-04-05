@@ -28,8 +28,11 @@ ANDROID_RSS_EXPIRATION_GRACE_HOURS=24
 ANDROID_RSS_MIN_ACTIVE_IDS=10
 ANDROID_RSS_MAX_EXPIRE_RATIO=0.35
 ANDROID_RSS_DETAILS_DELAY_MS=250
+ANDROID_RSS_SKIP_CLEANUP=true
 ANDROID_RSS_USER_AGENT=(opcional)
 ```
+
+Nota: en GitHub Actions se recomienda `ANDROID_RSS_SKIP_CLEANUP=true` para centralizar borrados en `clean-expired`.
 
 **Salida Ejemplo**:
 
@@ -38,6 +41,36 @@ ANDROID_RSS_USER_AGENT=(opcional)
 [producer-android-rss] juegos gratis validados: 2
 [producer-android-rss] queue final: 2
 ```
+
+---
+
+### Android - Scanner de Expirados
+
+```bash
+npm run produce:android:expired
+```
+
+**Descripción**: Revisa la memoria publicada de Android uno por uno en Google Play para detectar si un juego ya no sigue gratis. Si deja de ser gratuito, lo agrega a `android_expired`.
+
+**Entrada**: `published_games_android` (Netlify Blobs)
+**Salida**: `android_expired`
+
+**Archivos**:
+
+- Script: `scripts/github-android-expired.js`
+- Servicio: `services/android-expiration.js`
+
+**Variables de Entorno**:
+
+```env
+ANDROID_EXPIRATION_SCAN_MAX_EXPIRE_RATIO=0.35
+ANDROID_EXPIRATION_SCAN_DETAILS_DELAY_MS=750
+ANDROID_EXPIRATION_SCAN_SKIP_CLEANUP=true
+```
+
+Nota: en GitHub Actions se recomienda mantener `ANDROID_EXPIRATION_SCAN_SKIP_CLEANUP=true` para centralizar borrados en `clean-expired`.
+
+**Cadencia Recomendada**: 2 veces al dia desde GitHub Actions.
 
 ---
 

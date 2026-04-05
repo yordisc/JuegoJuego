@@ -8,6 +8,7 @@
     "produce:android": "node scripts/github-android.js",
     "produce:android:rss": "node scripts/github-android-rss.js",
     "produce:android:rss:no-cleanup": "ANDROID_RSS_SKIP_CLEANUP=1 node scripts/github-android-rss.js",
+    "produce:android:expired": "node scripts/github-android-expired.js",
     "produce:pc": "node scripts/github-pc.js",
     "produce:all": "npm run produce:android && npm run produce:android:rss:no-cleanup && npm run produce:pc",
     "blobs:show": "node scripts/blobs-admin.js show",
