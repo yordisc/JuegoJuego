@@ -87,22 +87,22 @@ CHANNEL_ID=@your_channel
 
 ## 📚 Documentación
 
-| Doc | Propósito |
-|-----|-----------|
-| [docs/INDEX.md](docs/INDEX.md) | Índice y navegación |
-| [docs/QUICK_START.md](docs/QUICK_START.md) | Setup y operación diaria |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detalles técnicos |
-| [docs/ai-context/](docs/ai-context/) | Para IAs y devs avanzados |
+| Doc                                          | Propósito                 |
+| -------------------------------------------- | ------------------------- |
+| [docs/INDEX.md](docs/INDEX.md)               | Índice y navegación       |
+| [docs/QUICK_START.md](docs/QUICK_START.md)   | Setup y operación diaria  |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detalles técnicos         |
+| [docs/ai-context/](docs/ai-context/)         | Para IAs y devs avanzados |
 
 ---
 
 ## 🐛 Troubleshooting
 
-| Problema | Solución |
-|----------|----------|
-| Cola no se vacía | Revisa errores de Telegram en logs |
+| Problema              | Solución                                  |
+| --------------------- | ----------------------------------------- |
+| Cola no se vacía      | Revisa errores de Telegram en logs        |
 | 429 Too Many Requests | Reduce `ANDROID_MAX_PUBLISH_PER_RUN` a 12 |
-| Memoria corrupta | `npm run blobs:normalize-memory` |
+| Memoria corrupta      | `npm run blobs:normalize-memory`          |
 
 👉 **Más casos**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
@@ -201,6 +201,7 @@ npm run blobs:normalize-memory    # Restaurar si hay corrupción
 ## 📁 Estructura
 
 Todo está organizado en carpetas lógicas:
+
 - `scripts/` - Productores (GitHub Actions)
 - `netlify/functions/` - Consumidores & limpiezas (Netlify)
 - `services/` - Lógica compartida
@@ -215,6 +216,7 @@ Todo está organizado en carpetas lógicas:
 ## ⚙️ Configuración
 
 **Necesita 4 variables de entorno**:
+
 - `NETLIFY_SITE_ID` - Tu site en Netlify
 - `NETLIFY_API_TOKEN` - Token de acceso Netlify
 - `TELEGRAM_TOKEN` - Token del bot de Telegram
@@ -299,7 +301,7 @@ npm test
 | Too Many Requests (429) | Reduce `ANDROID_MAX_PUBLISH_PER_RUN` a 12-15 |
 | Memoria corrupta | `npm run blobs:normalize-memory` |
 
-👉 **Más casos**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)es e IAs**: [docs/INDEX.md](docs/INDEX.md)
+👉 **Más casos**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)es e IAs\*\*: [docs/INDEX.md](docs/INDEX.md)
 
 3. **Scanner de Expirados Android (GitHub Actions):**
 
@@ -364,6 +366,7 @@ Métricas mínimas en logs:
 
 - `items_produced`
 - `items_published`
+
 ---
 
 **Documentación completa para desarrolladores e IAs**: [docs/INDEX.md](docs/INDEX.md)
