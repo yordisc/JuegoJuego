@@ -39,6 +39,30 @@ function parseBool(raw, defaultValue) {
   return defaultValue;
 }
 
+function resolveDeleteChatId(sendPayload, fallbackChatId) {
+  const fromPayload =
+    sendPayload && sendPayload.result && sendPayload.result.chat
+      ? sendPayload.result.chat.id
+      : null;
+
+  if (typeof fromPayload === "number" && Number.isFinite(fromPayload)) {
+    return fromPayload;
+  }
+
+  if (typeof fromPayload === "string" && fromPayload.trim()) {
+    return fromPayload.trim();
+  }
+
+  return fallbackChatId;
+}
+
+function buildDeleteMessagePayload(chatId, messageId) {
+  return {
+    chat_id: chatId,
+    message_id: messageId,
+  };
+}
+
 function resolveTargetChatId(event) {
   const queryChatId =
     event && event.queryStringParameters && event.queryStringParameters.chatId
@@ -70,10 +94,37 @@ function isTelegramDeleteNotAllowed(status, errorText) {
 
 async function readResponseText(response) {
   try {
+    if (response && typeof response.clone === "function") {
+      return await response.clone().text();
+    }
+
     return await response.text();
   } catch (err) {
     return `HTTP ${response.status}`;
   }
+}
+
+function isTelegramApiLogicalSuccess(payload) {
+  return Boolean(payload && payload.ok === true);
+}
+
+function extractTelegramApiError(payload, fallbackText) {
+  if (payload && typeof payload.description === "string" && payload.description.trim()) {
+    return payload.description.trim();
+  }
+
+  if (payload && payload.error_code != null) {
+    return `Telegram API error_code=${payload.error_code}`;
+  }
+
+  return String(fallbackText || "");
+}
+
+function buildMethodReference() {
+  return {
+    method: "deleteMessage",
+    signature: "deleteMessage(chat_id, message_id)",
+  };
 }
 
 async function persistSmokeResult(store, result) {
@@ -208,6 +259,10 @@ exports.handler = async (event) => {
         : null,
       false
     );
+    const includeDiagnostic = parseBool(
+      event && event.queryStringParameters ? event.queryStringParameters.includeDiagnostic : null,
+      false
+    );
 
     if (!process.env.TELEGRAM_TOKEN) {
       await persistSmokeResult(store, {
@@ -258,14 +313,19 @@ exports.handler = async (event) => {
     });
 
     const sendText = await readResponseText(sendResponse);
-    if (!sendResponse.ok) {
+    const sendPayload = await readJsonSafe(sendResponse);
+    const sendApiOk = isTelegramApiLogicalSuccess(sendPayload);
+
+    if (!sendResponse.ok || !sendApiOk) {
+      const sendError = extractTelegramApiError(sendPayload, sendText);
       await persistSmokeResult(store, {
         success: false,
         action: "manual-delete-smoke",
         step: "sendMessage",
         chatId,
         status: sendResponse.status,
-        error: sendText,
+        apiOk: sendApiOk,
+        error: sendError,
       });
 
       return {
@@ -278,13 +338,15 @@ exports.handler = async (event) => {
           step: "sendMessage",
           chatId,
           status: sendResponse.status,
-          error: sendText,
+          apiOk: sendApiOk,
+          error: sendError,
         }),
       };
     }
 
-    const payload = await sendResponse.json().catch(() => ({}));
-    const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
+    const messageId =
+      sendPayload && sendPayload.result ? sendPayload.result.message_id ?? null : null;
+    const deleteChatId = resolveDeleteChatId(sendPayload, chatId);
 
     if (!Number.isInteger(messageId)) {
       await persistSmokeResult(store, {
@@ -293,7 +355,7 @@ exports.handler = async (event) => {
         step: "sendMessage",
         chatId,
         error: "No se pudo leer message_id del mensaje temporal",
-        response: payload,
+        response: sendPayload,
       });
 
       return {
@@ -306,7 +368,7 @@ exports.handler = async (event) => {
           step: "sendMessage",
           chatId,
           error: "No se pudo leer message_id del mensaje temporal",
-          response: payload,
+          response: sendPayload,
         }),
       };
     }
@@ -338,14 +400,36 @@ exports.handler = async (event) => {
       };
     }
 
-    const deleteResponse = await requestWithRetry(`${telegramBase}/deleteMessage`, {
-      chat_id: chatId,
-      message_id: messageId,
-    });
+    const deletePayloadRequest = buildDeleteMessagePayload(deleteChatId, messageId);
+    let preDeleteDiagnostic = null;
+    if (includeDiagnostic) {
+      try {
+        preDeleteDiagnostic = await getDeletePermissionDiagnostic(telegramBase, deleteChatId);
+      } catch (diagErr) {
+        preDeleteDiagnostic = {
+          ok: false,
+          chatId: deleteChatId,
+          details: {
+            step: "pre-delete-diagnostic",
+            error: diagErr.message,
+          },
+        };
+      }
+    }
+
+    const deleteResponse = await requestWithRetry(
+      `${telegramBase}/deleteMessage`,
+      deletePayloadRequest
+    );
 
     const deleteText = await readResponseText(deleteResponse);
-    if (!deleteResponse.ok) {
-      const notAllowed = isTelegramDeleteNotAllowed(deleteResponse.status, deleteText);
+    const deletePayload = await readJsonSafe(deleteResponse);
+    const deleteApiOk =
+      isTelegramApiLogicalSuccess(deletePayload) && deletePayload.result === true;
+
+    if (!deleteResponse.ok || !deleteApiOk) {
+      const deleteError = extractTelegramApiError(deletePayload, deleteText);
+      const notAllowed = isTelegramDeleteNotAllowed(deleteResponse.status, deleteError);
       let permissionDiagnostic = null;
 
       if (notAllowed) {
@@ -368,13 +452,18 @@ exports.handler = async (event) => {
         action: "manual-delete-smoke",
         step: "deleteMessage",
         chatId,
+        deleteChatId,
         messageId,
         softFailDeleteError,
         nonDeletable: notAllowed,
+        methodReference: buildMethodReference(),
+        deletePayloadRequest,
+        preDeleteDiagnostic,
         permissionDiagnostic,
+        deleteApiOk,
         sendStatus: sendResponse.status,
         deleteStatus: deleteResponse.status,
-        deleteError: deleteText,
+        deleteError,
         sendResponse: sendText,
       });
 
@@ -392,12 +481,17 @@ exports.handler = async (event) => {
             reason: "message_not_deletable",
             hint:
               "Verifica que el bot sea admin en el chat/canal y tenga permiso can_delete_messages.",
+            methodReference: buildMethodReference(),
+            deletePayloadRequest,
+            preDeleteDiagnostic,
             chatId,
+            deleteChatId,
             messageId,
             permissionDiagnostic,
+            deleteApiOk,
             sendStatus: sendResponse.status,
             deleteStatus: deleteResponse.status,
-            deleteError: deleteText,
+            deleteError,
           }),
         };
       }
@@ -410,12 +504,17 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           success: false,
           step: "deleteMessage",
+          methodReference: buildMethodReference(),
+          deletePayloadRequest,
+          preDeleteDiagnostic,
           chatId,
+          deleteChatId,
           messageId,
           permissionDiagnostic,
+          deleteApiOk,
           sendStatus: sendResponse.status,
           deleteStatus: deleteResponse.status,
-          deleteError: deleteText,
+          deleteError,
           sendResponse: sendText,
         }),
       };
@@ -430,6 +529,7 @@ exports.handler = async (event) => {
       action: "manual-delete-smoke",
       step: "deleteMessage",
       chatId,
+      deleteChatId,
       messageId,
       sendStatus: sendResponse.status,
       deleteStatus: deleteResponse.status,
@@ -443,7 +543,11 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         action: "manual-delete-smoke",
+        methodReference: buildMethodReference(),
+        deletePayloadRequest,
+        preDeleteDiagnostic,
         chatId,
+        deleteChatId,
         messageId,
         sendStatus: sendResponse.status,
         deleteStatus: deleteResponse.status,
@@ -462,5 +566,9 @@ exports.handler = async (event) => {
 };
 
 exports._private = {
+  buildDeleteMessagePayload,
+  buildMethodReference,
+  isTelegramApiLogicalSuccess,
   isTelegramDeleteNotAllowed,
+  resolveDeleteChatId,
 };

@@ -241,6 +241,12 @@ Comportamiento:
 - Si llamas sin `skipDelete`, crea un mensaje temporal y lo borra inmediatamente.
 - Si llamas con `skipDelete=true`, solo crea el mensaje y te devuelve el `messageId` para una comprobacion parcial.
 - Si pasas `chatId` en la query, ese valor tiene prioridad sobre `SMOKE_TELEGRAM_CHAT_ID` y `CHANNEL_ID`.
+- Si llamas con `includeDiagnostic=true`, incluye diagnostico previo de permisos (`getMe` + `getChatMember`) y el payload exacto usado en el borrado.
+
+Metodo de borrado usado:
+
+- La function usa el metodo oficial de Telegram Bot API: `deleteMessage(chat_id, message_id)`.
+- En la respuesta veras `methodReference.signature` y `deletePayloadRequest` para validar exactamente como se llamo.
 
 Ejemplos utiles:
 
@@ -248,9 +254,22 @@ Ejemplos utiles:
 curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke" \
   -H "x-manual-key: <tu_clave>"
 
+curl -s "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke?includeDiagnostic=true" \
+  -H "x-manual-key: <tu_clave>" | jq
+
 curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke?chatId=@tu_canal&skipDelete=true" \
   -H "x-manual-key: <tu_clave>"
+
+curl -s "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status" \
+  -H "x-manual-key: <tu_clave>" | jq '.result.deleteSmoke'
 ```
+
+Campos clave para troubleshooting de borrado:
+
+- `methodReference.signature`: debe ser `deleteMessage(chat_id, message_id)`.
+- `deletePayloadRequest.chat_id` y `deletePayloadRequest.message_id`: parametros exactos enviados a Telegram.
+- `preDeleteDiagnostic.memberStatus` y `preDeleteDiagnostic.canDeleteMessages`: estado/permisos del bot en el chat.
+- `deleteError`: descripcion devuelta por Telegram cuando no pudo borrar.
 
 Importante sobre `manual-status` y `manual-clean-telegram`:
 
