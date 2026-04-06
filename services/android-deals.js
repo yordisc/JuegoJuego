@@ -561,7 +561,7 @@ async function reconcileAndroidPublications(store, publishedGames = [], options 
   const trackedMap = normalizeTrackedMap(trackedSent);
   const maxExistenceChecks = Number.isInteger(options.maxExistenceChecks)
     ? options.maxExistenceChecks
-    : readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 25);
+    : readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 50);
   const removedTrackedMessageIds = new Set();
 
   let verifiedCount = 0;

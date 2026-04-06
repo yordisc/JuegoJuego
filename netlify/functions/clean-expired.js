@@ -202,11 +202,11 @@ exports.handler = async () => {
       {
         lockKey: process.env.ANDROID_STATE_LOCK_KEY || "android_state_lock",
         owner: "clean-expired",
-        ttlMs: parsePositiveInt(process.env.ANDROID_STATE_LOCK_TTL_MS, 90 * 1000),
-        retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 20),
+        ttlMs: parsePositiveInt(process.env.ANDROID_STATE_LOCK_TTL_MS, 5 * 1000),
+        retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 5),
         retryDelayMs: parsePositiveInt(
           process.env.ANDROID_STATE_LOCK_RETRY_DELAY_MS,
-          1000
+          500
         ),
       },
       async () => {

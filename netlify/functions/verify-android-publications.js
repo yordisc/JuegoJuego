@@ -40,12 +40,12 @@ exports.handler = async () => {
         owner: "android-reconcile",
         ttlMs: parsePositiveInt(
           process.env.ANDROID_STATE_LOCK_TTL_MS,
-          90 * 1000
+          5 * 1000
         ),
-        retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 20),
+        retries: parsePositiveInt(process.env.ANDROID_STATE_LOCK_RETRIES, 5),
         retryDelayMs: parsePositiveInt(
           process.env.ANDROID_STATE_LOCK_RETRY_DELAY_MS,
-          1000
+          500
         ),
       },
       async () => {

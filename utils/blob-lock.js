@@ -44,9 +44,9 @@ function createToken(owner) {
 async function tryAcquireBlobLock(store, options = {}) {
   const lockKey = options.lockKey || "android_state_lock";
   const owner = options.owner || "unknown-owner";
-  const ttlMs = parseIntEnv(options.ttlMs, 90 * 1000);
-  const retries = parseIntEnv(options.retries, 20);
-  const retryDelayMs = parseIntEnv(options.retryDelayMs, 1000);
+  const ttlMs = parseIntEnv(options.ttlMs, 5 * 1000);
+  const retries = parseIntEnv(options.retries, 5);
+  const retryDelayMs = parseIntEnv(options.retryDelayMs, 500);
 
   const token = createToken(owner);
 
