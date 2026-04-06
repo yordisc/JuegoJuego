@@ -165,6 +165,44 @@ test("Snapshot manual de mantenimiento", async (t) => {
     global.fetch = originalFetch;
   });
 
+  await t.test("Considera 'message can't be deleted' como resuelto no reintentable", async () => {
+    process.env.TELEGRAM_TOKEN = "test-token";
+    process.env.CHANNEL_ID = "@testchannel";
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request: message can't be deleted",
+        }),
+    });
+
+    const store = createMockStore({
+      published_games_android: JSON.stringify([{ id: "com.b", messageId: 170 }]),
+      published_games_pc: JSON.stringify([]),
+      android_expired: JSON.stringify([]),
+      pc_expired: JSON.stringify([]),
+      manual_telegram_cleanup_queue: JSON.stringify([{ messageId: 170 }]),
+    });
+
+    const result = await deleteTrackedTelegramMessages(store);
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.trackedMessages, 1);
+    assert.strictEqual(result.deleted, 1);
+    assert.strictEqual(result.deletedNotAllowed, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.deepStrictEqual(result.unresolvedMessageIds, []);
+    assert.deepStrictEqual(snapshot.manual_telegram_cleanup_queue, []);
+    assert.deepStrictEqual(snapshot.published_games_android, []);
+
+    global.fetch = originalFetch;
+  });
+
   await t.test("Limpia huerfanos y conserva mensajes de ofertas activas", async () => {
     process.env.TELEGRAM_TOKEN = "test-token";
     process.env.CHANNEL_ID = "@testchannel";
@@ -226,6 +264,43 @@ test("Snapshot manual de mantenimiento", async (t) => {
         titleMatch: "com active",
       },
     ]);
+
+    global.fetch = originalFetch;
+  });
+
+  await t.test("Huerfanos: trata 'message can't be deleted' como resuelto", async () => {
+    process.env.TELEGRAM_TOKEN = "test-token";
+    process.env.CHANNEL_ID = "@testchannel";
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: false,
+      status: 400,
+      text: async () =>
+        JSON.stringify({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request: message can't be deleted",
+        }),
+    });
+
+    const store = createMockStore({
+      published_games_android: JSON.stringify([]),
+      published_games_pc: JSON.stringify([]),
+      telegram_sent_messages: JSON.stringify([
+        { id: "pc.old", messageId: 701, platform: "pc", publishedAt: 3 },
+      ]),
+    });
+
+    const result = await cleanTelegramOrphanMessages(store);
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.orphanCandidates, 1);
+    assert.strictEqual(result.deleted, 1);
+    assert.strictEqual(result.deletedNotAllowed, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.deepStrictEqual(result.unresolvedMessageIds, []);
+    assert.deepStrictEqual(snapshot.telegram_sent_messages, []);
 
     global.fetch = originalFetch;
   });

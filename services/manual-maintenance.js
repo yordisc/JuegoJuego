@@ -283,6 +283,15 @@ function isTelegramDeleteNotFound(status, errorText) {
   return /message to delete not found/i.test(String(errorText || ""));
 }
 
+function isTelegramDeleteNotAllowed(status, errorText) {
+  if (status !== 400) {
+    return false;
+  }
+
+  const text = String(errorText || "").toLowerCase();
+  return text.includes("message can't be deleted") || text.includes("message can\u2019t be deleted");
+}
+
 function shouldResolveNotFoundByChat(entry, currentChatId) {
   const trackedChatId =
     entry && typeof entry === "object" && entry.chatId != null
@@ -455,6 +464,7 @@ async function deleteTrackedTelegramMessages(store) {
 
   let deleted = 0;
   let deletedNotFound = 0;
+  let deletedNotAllowed = 0;
   let failed = 0;
   const deletedMessageIds = new Set();
   const failedMessageIds = new Set();
@@ -494,6 +504,16 @@ async function deleteTrackedTelegramMessages(store) {
         deletedMessageIds.add(item.messageId);
         console.info(
           `[manual-maintenance] Mensaje ${item.messageId} ya no existe (${item.source}), se marca como resuelto.`
+        );
+        continue;
+      }
+
+      if (isTelegramDeleteNotAllowed(response.status, text)) {
+        deleted += 1;
+        deletedNotAllowed += 1;
+        deletedMessageIds.add(item.messageId);
+        console.info(
+          `[manual-maintenance] Mensaje ${item.messageId} no es borrable (${item.source}), se marca como resuelto para evitar reintentos.`
         );
         continue;
       }
@@ -574,6 +594,7 @@ async function deleteTrackedTelegramMessages(store) {
     trackedMessages: uniqueMessages.length,
     deleted,
     deletedNotFound,
+    deletedNotAllowed,
     failed,
     unresolvedMessageIds: Array.from(failedMessageIds),
     androidPublishedRemaining: filteredAndroidPublished.length,
@@ -611,6 +632,7 @@ async function cleanTelegramOrphanMessages(store) {
 
   let deleted = 0;
   let deletedNotFound = 0;
+  let deletedNotAllowed = 0;
   let failed = 0;
   const deletedMessageIds = new Set();
   const failedMessageIds = new Set();
@@ -652,6 +674,13 @@ async function cleanTelegramOrphanMessages(store) {
         continue;
       }
 
+      if (isTelegramDeleteNotAllowed(response.status, text)) {
+        deleted += 1;
+        deletedNotAllowed += 1;
+        deletedMessageIds.add(messageId);
+        continue;
+      }
+
       failed += 1;
       failedMessageIds.add(messageId);
       console.warn(
@@ -687,6 +716,7 @@ async function cleanTelegramOrphanMessages(store) {
     orphanCandidates: orphanCandidates.length,
     deleted,
     deletedNotFound,
+    deletedNotAllowed,
     failed,
     unresolvedMessageIds: Array.from(failedMessageIds).sort((a, b) => a - b),
     trackedRemaining: nextTracked.length,

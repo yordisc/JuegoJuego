@@ -48,6 +48,15 @@ function resolveTargetChatId(event) {
   return queryChatId || process.env.SMOKE_TELEGRAM_CHAT_ID || process.env.CHANNEL_ID || "";
 }
 
+function isTelegramDeleteNotAllowed(status, errorText) {
+  if (status !== 400) {
+    return false;
+  }
+
+  const text = String(errorText || "").toLowerCase();
+  return text.includes("message can't be deleted") || text.includes("message can\u2019t be deleted");
+}
+
 async function readResponseText(response) {
   try {
     return await response.text();
@@ -71,6 +80,88 @@ async function persistSmokeResult(store, result) {
       `[manual-delete-smoke] No se pudo guardar el ultimo resultado: ${err.message}`
     );
   }
+}
+
+async function readJsonSafe(response) {
+  try {
+    return await response.json();
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function getDeletePermissionDiagnostic(telegramBase, chatId) {
+  const diagnostic = {
+    ok: false,
+    chatId,
+    botUserId: null,
+    botUsername: null,
+    memberStatus: null,
+    isAdmin: false,
+    canDeleteMessages: false,
+    details: null,
+  };
+
+  const meResponse = await requestWithRetry(`${telegramBase}/getMe`, {});
+  if (!meResponse.ok) {
+    diagnostic.details = {
+      step: "getMe",
+      status: meResponse.status,
+      error: await readResponseText(meResponse),
+    };
+    return diagnostic;
+  }
+
+  const mePayload = await readJsonSafe(meResponse);
+  const botId =
+    mePayload && mePayload.result && Number.isInteger(mePayload.result.id)
+      ? mePayload.result.id
+      : null;
+  diagnostic.botUserId = botId;
+  diagnostic.botUsername =
+    mePayload && mePayload.result && typeof mePayload.result.username === "string"
+      ? mePayload.result.username
+      : null;
+
+  if (!Number.isInteger(botId)) {
+    diagnostic.details = {
+      step: "getMe",
+      error: "No se pudo obtener bot id desde getMe",
+      payload: mePayload,
+    };
+    return diagnostic;
+  }
+
+  const memberResponse = await requestWithRetry(`${telegramBase}/getChatMember`, {
+    chat_id: chatId,
+    user_id: botId,
+  });
+
+  if (!memberResponse.ok) {
+    diagnostic.details = {
+      step: "getChatMember",
+      status: memberResponse.status,
+      error: await readResponseText(memberResponse),
+    };
+    return diagnostic;
+  }
+
+  const memberPayload = await readJsonSafe(memberResponse);
+  const member = memberPayload && memberPayload.result ? memberPayload.result : null;
+  const status = member && typeof member.status === "string" ? member.status : null;
+  const canDelete = Boolean(member && member.can_delete_messages === true);
+  const isAdmin = status === "administrator" || status === "creator";
+
+  diagnostic.ok = true;
+  diagnostic.memberStatus = status;
+  diagnostic.isAdmin = isAdmin;
+  diagnostic.canDeleteMessages = canDelete;
+  diagnostic.details = {
+    step: "getChatMember",
+    payload: member,
+  };
+
+  return diagnostic;
 }
 
 exports.handler = async (event) => {
@@ -98,6 +189,12 @@ exports.handler = async (event) => {
     const chatId = resolveTargetChatId(event);
     const skipDelete = parseBool(
       event && event.queryStringParameters ? event.queryStringParameters.skipDelete : null,
+      false
+    );
+    const softFailDeleteError = parseBool(
+      event && event.queryStringParameters
+        ? event.queryStringParameters.softFailDeleteError
+        : null,
       false
     );
 
@@ -237,17 +334,62 @@ exports.handler = async (event) => {
 
     const deleteText = await readResponseText(deleteResponse);
     if (!deleteResponse.ok) {
+      const notAllowed = isTelegramDeleteNotAllowed(deleteResponse.status, deleteText);
+      let permissionDiagnostic = null;
+
+      if (notAllowed) {
+        try {
+          permissionDiagnostic = await getDeletePermissionDiagnostic(telegramBase, chatId);
+        } catch (diagErr) {
+          permissionDiagnostic = {
+            ok: false,
+            chatId,
+            details: {
+              step: "diagnostic",
+              error: diagErr.message,
+            },
+          };
+        }
+      }
+
       await persistSmokeResult(store, {
         success: false,
         action: "manual-delete-smoke",
         step: "deleteMessage",
         chatId,
         messageId,
+        softFailDeleteError,
+        nonDeletable: notAllowed,
+        permissionDiagnostic,
         sendStatus: sendResponse.status,
         deleteStatus: deleteResponse.status,
         deleteError: deleteText,
         sendResponse: sendText,
       });
+
+      if (softFailDeleteError && notAllowed) {
+        return {
+          statusCode: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify({
+            success: false,
+            action: "manual-delete-smoke",
+            step: "deleteMessage",
+            degraded: true,
+            reason: "message_not_deletable",
+            hint:
+              "Verifica que el bot sea admin en el chat/canal y tenga permiso can_delete_messages.",
+            chatId,
+            messageId,
+            permissionDiagnostic,
+            sendStatus: sendResponse.status,
+            deleteStatus: deleteResponse.status,
+            deleteError: deleteText,
+          }),
+        };
+      }
 
       return {
         statusCode: 502,
@@ -259,6 +401,7 @@ exports.handler = async (event) => {
           step: "deleteMessage",
           chatId,
           messageId,
+          permissionDiagnostic,
           sendStatus: sendResponse.status,
           deleteStatus: deleteResponse.status,
           deleteError: deleteText,

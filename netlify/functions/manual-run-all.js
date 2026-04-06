@@ -75,6 +75,21 @@ async function runStep(name, handler, event) {
   };
 }
 
+function withExtraQueryParams(event, extraParams) {
+  const current =
+    event && event.queryStringParameters && typeof event.queryStringParameters === "object"
+      ? event.queryStringParameters
+      : {};
+
+  return {
+    ...(event || {}),
+    queryStringParameters: {
+      ...current,
+      ...extraParams,
+    },
+  };
+}
+
 exports.handler = async (event) => {
   if (!isAuthorized(event)) {
     return {
@@ -107,7 +122,11 @@ exports.handler = async (event) => {
 
   for (const [name, handler] of steps) {
     console.log(`[manual-run-all] Ejecutando: ${name}`);
-    const stepResult = await runStep(name, handler, event);
+    const stepEvent =
+      name === "manual-delete-smoke"
+        ? withExtraQueryParams(event, { softFailDeleteError: "true" })
+        : event;
+    const stepResult = await runStep(name, handler, stepEvent);
     results.push(stepResult);
 
     const parsed = parseStepBody(stepResult.body);
