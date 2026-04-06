@@ -58,3 +58,24 @@
 [functions.manual-status]
   # Snapshot semanal posterior al mantenimiento: 01:20 UTC
   schedule = "20 1 * * 1"
+
+# Manual functions (invocables vía HTTP)
+[functions.manual-android-status-report]
+  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
+  schedule = "0 0 1 * *"
+
+[functions.manual-clean-memory]
+  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
+  schedule = "0 0 1 * *"
+
+[functions.manual-clean-telegram]
+  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
+  schedule = "0 0 1 * *"
+
+[functions.manual-delete-smoke]
+  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
+  schedule = "0 0 1 * *"
+
+[functions.manual-pc-status-report]
+  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
+  schedule = "0 0 1 * *"

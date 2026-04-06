@@ -4,6 +4,7 @@ const {
   createBlobStoreFromEnv,
   getBlobCredentialReport,
 } = require("../../utils/netlify-blobs");
+const { withBlobLock } = require("../../utils/blob-lock");
 const { clearAllMemory } = require("../../services/manual-maintenance");
 
 function isAuthorized(event) {
@@ -53,7 +54,17 @@ exports.handler = async (event) => {
     }
 
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
-    const result = await clearAllMemory(store);
+
+    // Usar lock android_state_lock para evitar race conditions con check-android/clean-expired
+    const result = await withBlobLock(
+      store,
+      {
+        lockKey: "android_state_lock",
+        owner: "manual-clean-memory",
+        ttlMs: 120 * 1000, // 2 minutos para operación de limpieza
+      },
+      () => clearAllMemory(store)
+    );
 
     if (logLevel === "debug") {
       console.log("[manual-clean-memory] result:", JSON.stringify(result));

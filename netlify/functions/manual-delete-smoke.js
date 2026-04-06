@@ -126,16 +126,6 @@ exports.handler = async (event) => {
         step: "preflight",
         chatId: null,
         error: "Falta chatId objetivo",
-
-    await persistSmokeResult(store, {
-      success: true,
-      action: "manual-delete-smoke",
-
-    const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
-    const smokeText =
-      event && event.queryStringParameters && event.queryStringParameters.text
-        ? String(event.queryStringParameters.text).slice(0, 120)
-        : "Telegram delete smoke check";
       });
 
       return {

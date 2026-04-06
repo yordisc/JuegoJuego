@@ -197,6 +197,18 @@ Tambien se programo una limpieza diaria de mensajes huerfanos en Telegram:
 
 - `clean-orphan-telegram`: todos los dias 03:30 UTC.
 
+Adicionalmente, todas las funciones manuales de limpieza y status se ejecutan automaticamente 1 vez al mes (primer dia a las 00:00 UTC):
+
+- `manual-android-status-report`: 1er día del mes 00:00 UTC.
+- `manual-pc-status-report`: 1er día del mes 00:00 UTC.
+- `manual-clean-memory`: 1er día del mes 00:00 UTC.
+- `manual-clean-telegram`: 1er día del mes 00:00 UTC.
+- `manual-delete-smoke`: 1er día del mes 00:00 UTC.
+
+Estas funciones tambien pueden invocarse bajo demanda mediante HTTP (con o sin clave de autorización).
+
+Funciones manuales bajo demanda:
+
 - `manual-status`: consulta resumen de memoria/colas/expirados/backlog y tambien el ultimo resultado de `manual-delete-smoke`.
 - `manual-android-status-report`: consulta bajo demanda el estado Android (`pending_send`, `sent_unverified`, `sent_verified`) y opcionalmente envia alerta Telegram.
 - `manual-pc-status-report`: consulta bajo demanda el estado PC (`pending_send`, `sent_unverified`, `sent_verified`) y opcionalmente envia alerta Telegram.

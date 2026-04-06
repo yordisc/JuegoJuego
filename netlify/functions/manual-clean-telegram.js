@@ -4,6 +4,7 @@ const {
   createBlobStoreFromEnv,
   getBlobCredentialReport,
 } = require("../../utils/netlify-blobs");
+const { withBlobLock } = require("../../utils/blob-lock");
 const {
   deleteTrackedTelegramMessages,
 } = require("../../services/manual-maintenance");
@@ -55,7 +56,17 @@ exports.handler = async (event) => {
     }
 
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
-    const result = await deleteTrackedTelegramMessages(store);
+
+    // Usar lock android_state_lock para evitar race conditions con otros módulos
+    const result = await withBlobLock(
+      store,
+      {
+        lockKey: "android_state_lock",
+        owner: "manual-clean-telegram",
+        ttlMs: 120 * 1000, // 2 minutos para operación de limpieza
+      },
+      () => deleteTrackedTelegramMessages(store)
+    );
 
     if (logLevel === "debug") {
       console.log("[manual-clean-telegram] result:", JSON.stringify(result));
