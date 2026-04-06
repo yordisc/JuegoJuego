@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const {
   checkAndroidDeals,
+  reconcileAndroidPublications,
   buildAndroidMessage,
   escapeTelegramMarkdownText,
 } = require("../services/android-deals");
@@ -75,6 +76,7 @@ test("Suite Android Consumer", async (t) => {
     assert.ok(Number.isInteger(publishedGames[0].publishedAt));
     assert.strictEqual(publishedGames[0].id, "com.new.app");
     assert.strictEqual(publishedGames[0].messageId, 111);
+    assert.strictEqual(publishedGames[0].status, "sent_unverified");
   });
 
   await t.test("No duplica IDs ya publicados", async () => {
@@ -304,5 +306,154 @@ test("Suite Android Consumer", async (t) => {
         "[Get it on Google Play](https://play.google.com/store/apps/details?id=com.markdown.test&ref=\\(promo\\))"
       )
     );
+  });
+
+  await t.test("Reconciliacion verifica por tracking de id/titulo y republica pendientes", async () => {
+    const calls = [];
+    global.fetch = async (url, opts) => {
+      calls.push({ url, body: JSON.parse(opts.body || "{}") });
+
+      if (url.includes("sendPhoto") || url.includes("sendMessage")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 444 } }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      };
+    };
+
+    const store = createStore({
+      telegram_sent_messages: [
+        {
+          id: "com.already.sent",
+          title: "Already Sent",
+          titleMatch: "already sent",
+          messageId: 333,
+          platform: "android",
+          publishedAt: 10,
+        },
+      ],
+    });
+
+    const publishedGames = [
+      {
+        id: "com.already.sent",
+        title: "Already Sent",
+        messageId: null,
+        status: "pending_send",
+      },
+      {
+        id: "com.needs.publish",
+        title: "Needs Publish",
+        messageId: null,
+        status: "pending_send",
+      },
+    ];
+
+    const result = await reconcileAndroidPublications(store, publishedGames, {
+      maxRepublishPerRun: 5,
+    });
+
+    assert.strictEqual(result.verifiedCount, 1);
+    assert.strictEqual(result.republishedCount, 1);
+    assert.strictEqual(result.republishErrors, 0);
+
+    const verified = publishedGames.find((item) => item.id === "com.already.sent");
+    const republished = publishedGames.find((item) => item.id === "com.needs.publish");
+
+    assert.strictEqual(verified.messageId, 333);
+    assert.strictEqual(verified.status, "sent_verified");
+
+    assert.strictEqual(republished.messageId, 444);
+    assert.strictEqual(republished.status, "sent_unverified");
+
+    assert.strictEqual(
+      calls.filter((entry) => entry.url.includes("sendMessage") || entry.url.includes("sendPhoto")).length,
+      1
+    );
+  });
+
+  await t.test("Reconciliacion reprocesa juego si el mensaje rastreado ya no existe en Telegram", async () => {
+    const calls = [];
+    global.fetch = async (url, opts) => {
+      const body = JSON.parse(opts.body || "{}");
+      calls.push({ url, body });
+
+      if (url.includes("editMessageText")) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message to edit not found",
+            }),
+        };
+      }
+
+      if (url.includes("sendMessage") || url.includes("sendPhoto")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 777 } }),
+        };
+      }
+
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      telegram_sent_messages: [
+        {
+          id: "com.deleted.by.admin",
+          title: "Deleted By Admin",
+          titleMatch: "deleted by admin",
+          messageId: 555,
+          messageKind: "text",
+          messageText: "📱 **NEW ANDROID DEAL** 📱\n\n🎮 *Deleted By Admin*",
+          platform: "android",
+          publishedAt: 1,
+        },
+      ],
+    });
+
+    const publishedGames = [
+      {
+        id: "com.deleted.by.admin",
+        title: "Deleted By Admin",
+        messageId: 555,
+        status: "sent_verified",
+      },
+    ];
+
+    const result = await reconcileAndroidPublications(store, publishedGames, {
+      maxRepublishPerRun: 5,
+      maxExistenceChecks: 5,
+    });
+
+    assert.strictEqual(result.existenceChecks, 1);
+    assert.strictEqual(result.existenceMissing, 1);
+    assert.strictEqual(result.republishedCount, 1);
+
+    assert.strictEqual(publishedGames[0].messageId, 777);
+    assert.strictEqual(publishedGames[0].status, "sent_unverified");
+
+    assert.strictEqual(
+      calls.filter((entry) => entry.url.includes("editMessageText")).length,
+      1
+    );
+    assert.strictEqual(
+      calls.filter((entry) => entry.url.includes("sendMessage") || entry.url.includes("sendPhoto")).length,
+      1
+    );
+
+    const snapshot = store.snapshot();
+    assert.strictEqual(Array.isArray(snapshot.telegram_sent_messages), true);
+    assert.strictEqual(snapshot.telegram_sent_messages.some((item) => item.messageId === 555), false);
+    assert.strictEqual(snapshot.telegram_sent_messages.some((item) => item.messageId === 777), true);
   });
 });

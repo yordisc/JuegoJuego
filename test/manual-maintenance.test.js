@@ -74,6 +74,11 @@ test("Snapshot manual de mantenimiento", async (t) => {
       pcExpired: 1,
       telegramBacklog: 2,
       trackedTelegramMessages: 6,
+      androidStatus: {
+        pendingSend: 0,
+        sentUnverified: 2,
+        sentVerified: 0,
+      },
     });
     assert.deepStrictEqual(snapshot.tracking, {
       scope: "memory_only",
@@ -212,9 +217,153 @@ test("Snapshot manual de mantenimiento", async (t) => {
     assert.strictEqual(result.failed, 0);
     assert.deepStrictEqual(result.unresolvedMessageIds, []);
     assert.deepStrictEqual(snapshot.telegram_sent_messages, [
-      { id: "com.active", messageId: 500, platform: "android", publishedAt: 1 },
+      {
+        id: "com.active",
+        messageId: 500,
+        platform: "android",
+        publishedAt: 1,
+        title: null,
+        titleMatch: "com active",
+      },
     ]);
 
     global.fetch = originalFetch;
+  });
+
+  await t.test("Limpia mensaje viejo cuando el id sigue activo pero el messageId cambio", async () => {
+    process.env.TELEGRAM_TOKEN = "test-token";
+    process.env.CHANNEL_ID = "@testchannel";
+
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (_url, opts) => {
+      const body = JSON.parse(opts.body || "{}");
+      calls.push(body.message_id);
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: true }),
+        text: async () => "",
+      };
+    };
+
+    const store = createMockStore({
+      published_games_android: JSON.stringify([{ id: "com.active", messageId: 500 }]),
+      published_games_pc: JSON.stringify([]),
+      telegram_sent_messages: JSON.stringify([
+        { id: "com.active", messageId: 500, platform: "android", publishedAt: 10 },
+        { id: "com.active", messageId: 450, platform: "android", publishedAt: 5 },
+      ]),
+    });
+
+    const result = await cleanTelegramOrphanMessages(store);
+    const snapshot = store.snapshot();
+
+    assert.deepStrictEqual(calls, [450]);
+    assert.strictEqual(result.trackedTotal, 2);
+    assert.strictEqual(result.orphanCandidates, 1);
+    assert.strictEqual(result.deleted, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.deepStrictEqual(snapshot.telegram_sent_messages, [
+      {
+        id: "com.active",
+        messageId: 500,
+        platform: "android",
+        publishedAt: 10,
+        title: null,
+        titleMatch: "com active",
+      },
+    ]);
+
+    global.fetch = originalFetch;
+  });
+
+  await t.test("Usa chatId rastreado al borrar y resuelve not found en ese chat", async () => {
+    process.env.TELEGRAM_TOKEN = "test-token";
+    process.env.CHANNEL_ID = "@currentchannel";
+
+    const originalFetch = global.fetch;
+    const fetchCalls = [];
+    global.fetch = async (_url, opts) => {
+      fetchCalls.push(JSON.parse(opts.body || "{}"));
+
+      return {
+        ok: false,
+        status: 400,
+        text: async () =>
+          JSON.stringify({
+            ok: false,
+            error_code: 400,
+            description: "Bad Request: message to delete not found",
+          }),
+      };
+    };
+
+    const store = createMockStore({
+      published_games_android: JSON.stringify([]),
+      published_games_pc: JSON.stringify([]),
+      android_expired: JSON.stringify([]),
+      pc_expired: JSON.stringify([]),
+      manual_telegram_cleanup_queue: JSON.stringify([]),
+      telegram_sent_messages: JSON.stringify([
+        {
+          id: "com.old.channel",
+          messageId: 888,
+          platform: "android",
+          chatId: "@oldchannel",
+          publishedAt: 1,
+        },
+      ]),
+    });
+
+    const result = await deleteTrackedTelegramMessages(store);
+    const snapshot = store.snapshot();
+
+    assert.strictEqual(result.trackedMessages, 1);
+    assert.strictEqual(result.deleted, 1);
+    assert.strictEqual(result.deletedNotFound, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.deepStrictEqual(result.unresolvedMessageIds, []);
+    assert.strictEqual(fetchCalls.length, 1);
+    assert.strictEqual(fetchCalls[0].chat_id, "@oldchannel");
+    assert.strictEqual(fetchCalls[0].message_id, 888);
+    assert.deepStrictEqual(snapshot.manual_telegram_cleanup_queue, []);
+    assert.deepStrictEqual(snapshot.telegram_sent_messages, []);
+
+    global.fetch = originalFetch;
+  });
+
+  await t.test("Expone el ultimo smoke de borrado en el snapshot", async () => {
+    const store = createMockStore({
+      published_games_android: JSON.stringify([]),
+      published_games_pc: JSON.stringify([]),
+      android_expired: JSON.stringify([]),
+      pc_expired: JSON.stringify([]),
+      manual_telegram_cleanup_queue: JSON.stringify([]),
+      manual_delete_smoke_result: JSON.stringify({
+        success: true,
+        action: "manual-delete-smoke",
+        step: "deleteMessage",
+        chatId: "@testchannel",
+        messageId: 999,
+        sendStatus: 200,
+        deleteStatus: 200,
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      }),
+    });
+
+    const snapshot = await getMaintenanceSnapshot(store);
+
+    assert.deepStrictEqual(snapshot.deleteSmoke, {
+      success: true,
+      action: "manual-delete-smoke",
+      step: "deleteMessage",
+      chatId: "@testchannel",
+      messageId: 999,
+      sendStatus: 200,
+      deleteStatus: 200,
+      updatedAt: "2026-04-06T00:00:00.000Z",
+    });
   });
 });

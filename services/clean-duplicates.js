@@ -1,6 +1,59 @@
 // services/clean-duplicates.js
 
 const { requestWithRetry } = require("../utils/telegram");
+const { normalizeTitleForMatch } = require("../utils/memory");
+
+const DEFAULT_GENERIC_NAME_TOKENS = [
+  "app",
+  "apps",
+  "game",
+  "games",
+  "premium",
+  "pro",
+  "vip",
+  "free",
+  "gratis",
+  "offer",
+  "deal",
+];
+
+function readGenericNameTokensFromEnv(env = process.env) {
+  const raw =
+    env && typeof env.CLEAN_DUPLICATES_GENERIC_TOKENS === "string"
+      ? env.CLEAN_DUPLICATES_GENERIC_TOKENS
+      : "";
+
+  if (!raw.trim()) {
+    return new Set(DEFAULT_GENERIC_NAME_TOKENS);
+  }
+
+  const tokens = raw
+    .split(",")
+    .map((token) => normalizeTitleForMatch(token))
+    .filter(Boolean);
+
+  if (tokens.length === 0) {
+    return new Set(DEFAULT_GENERIC_NAME_TOKENS);
+  }
+
+  return new Set(tokens);
+}
+
+const GENERIC_NAME_TOKENS = readGenericNameTokensFromEnv();
+
+function hasEnoughSpecificityForNameMatch(titleKey) {
+  if (!titleKey || titleKey.length < 5) {
+    return false;
+  }
+
+  const tokens = titleKey.split(" ").filter(Boolean);
+  if (tokens.length < 2) {
+    return false;
+  }
+
+  const nonGenericTokens = tokens.filter((token) => !GENERIC_NAME_TOKENS.has(token));
+  return nonGenericTokens.length >= 1;
+}
 
 /**
  * Agrupa mensajes por ID de juego y retorna un mapa
@@ -20,6 +73,40 @@ function groupMessagesByGameId(publishedGames = []) {
     }
 
     grouped[id].push(game);
+  }
+
+  return grouped;
+}
+
+function groupMessagesByGameName(publishedGames = []) {
+  const grouped = {};
+
+  for (const game of publishedGames) {
+    if (!game || typeof game !== "object") {
+      continue;
+    }
+
+    const titleKey = normalizeTitleForMatch(game.titleMatch || game.title || "");
+    const platform =
+      game && typeof game === "object" && typeof game.platform === "string"
+        ? game.platform.trim().toLowerCase()
+        : "";
+    if (!titleKey) {
+      continue;
+    }
+
+    // Evita agrupar por nombre ambiguo/demasiado corto o sin plataforma definida.
+    if (!platform || !hasEnoughSpecificityForNameMatch(titleKey)) {
+      continue;
+    }
+
+    const scopedNameKey = `${platform}:${titleKey}`;
+
+    if (!grouped[scopedNameKey]) {
+      grouped[scopedNameKey] = [];
+    }
+
+    grouped[scopedNameKey].push(game);
   }
 
   return grouped;
@@ -81,19 +168,107 @@ function getMessagesToDelete(sortedDuplicates = []) {
   return sortedDuplicates.slice(0, -1).map((msg) => msg.messageId).filter((id) => id != null);
 }
 
+function buildDuplicateClusters(publishedGames = []) {
+  const candidates = publishedGames.filter(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      Number.isInteger(item.messageId) &&
+      item.messageId > 0
+  );
+
+  if (candidates.length <= 1) {
+    return [];
+  }
+
+  const parent = candidates.map((_, index) => index);
+  const find = (x) => {
+    if (parent[x] !== x) {
+      parent[x] = find(parent[x]);
+    }
+    return parent[x];
+  };
+  const union = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) {
+      parent[rb] = ra;
+    }
+  };
+
+  const byId = new Map();
+  const byName = new Map();
+
+  candidates.forEach((item, index) => {
+    const id =
+      typeof item.id === "string"
+        ? item.id.trim().toLowerCase()
+        : item.id != null
+          ? String(item.id).trim().toLowerCase()
+          : "";
+    if (id) {
+      if (!byId.has(id)) {
+        byId.set(id, []);
+      }
+      byId.get(id).push(index);
+    }
+
+    const titleKey = normalizeTitleForMatch(item.titleMatch || item.title || "");
+    const platform =
+      item && typeof item === "object" && typeof item.platform === "string"
+        ? item.platform.trim().toLowerCase()
+        : "";
+    if (titleKey && platform && hasEnoughSpecificityForNameMatch(titleKey)) {
+      const scopedNameKey = `${platform}:${titleKey}`;
+      if (!byName.has(scopedNameKey)) {
+        byName.set(scopedNameKey, []);
+      }
+      byName.get(scopedNameKey).push(index);
+    }
+  });
+
+  for (const list of byId.values()) {
+    for (let i = 1; i < list.length; i += 1) {
+      union(list[0], list[i]);
+    }
+  }
+
+  for (const list of byName.values()) {
+    for (let i = 1; i < list.length; i += 1) {
+      union(list[0], list[i]);
+    }
+  }
+
+  const grouped = new Map();
+  candidates.forEach((item, index) => {
+    const root = find(index);
+    if (!grouped.has(root)) {
+      grouped.set(root, []);
+    }
+    grouped.get(root).push(item);
+  });
+
+  return Array.from(grouped.values()).filter((group) => group.length > 1);
+}
+
 /**
  * Elimina un mensaje de Telegram
  */
-async function deleteMessageFromTelegram(messageId) {
+async function deleteMessageFromTelegram(messageId, chatId) {
   if (!Number.isInteger(messageId) || messageId <= 0) {
     return { ok: false, reason: "messageId inválido" };
   }
+
+  const targetChatId =
+    chatId != null && String(chatId).trim()
+      ? String(chatId).trim()
+      : process.env.CHANNEL_ID;
 
   const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
 
   try {
     const response = await requestWithRetry(`${telegramBase}/deleteMessage`, {
-      chat_id: process.env.CHANNEL_ID,
+      chat_id: targetChatId,
       message_id: messageId,
     });
 
@@ -130,8 +305,7 @@ async function cleanDuplicates(publishedGames = []) {
   console.log("[clean-duplicates] Iniciando limpieza de duplicados...");
   console.log(`[clean-duplicates] Total de juegos únicos: ${publishedGames.length}`);
 
-  const grouped = groupMessagesByGameId(publishedGames);
-  const duplicates = findDuplicates(grouped);
+  const duplicates = buildDuplicateClusters(publishedGames);
 
   if (duplicates.length === 0) {
     console.log("[clean-duplicates] ✅ No se encontraron duplicados.");
@@ -164,7 +338,11 @@ async function cleanDuplicates(publishedGames = []) {
 
     for (const messageId of toDelete) {
       try {
-        const result = await deleteMessageFromTelegram(messageId);
+        const messageEntry = sorted.find((entry) => entry.messageId === messageId) || null;
+        const result = await deleteMessageFromTelegram(
+          messageId,
+          messageEntry && typeof messageEntry === "object" ? messageEntry.chatId : null
+        );
 
         if (result.ok) {
           console.log(`[clean-duplicates]   ✅ Mensaje ${messageId} eliminado`);
@@ -216,7 +394,10 @@ async function cleanDuplicates(publishedGames = []) {
 }
 
 module.exports = {
+  readGenericNameTokensFromEnv,
+  buildDuplicateClusters,
   groupMessagesByGameId,
+  groupMessagesByGameName,
   findDuplicates,
   sortByAge,
   getMessagesToDelete,

@@ -85,6 +85,51 @@ El scraping pesado ya no corre dentro de Netlify Functions.
 - `clean-expired` es el unico proceso que elimina en Telegram los juegos expirados de Android y PC.
 - Cada corrida limpia sus colas procesadas al finalizar.
 
+5. **Reconciliador Diario Android (Netlify Functions):**
+
+- `verify-android-publications` corre 1 vez al dia para reconciliar la memoria Android con el tracking de Telegram.
+- Verifica existencia por `id` y por nombre normalizado (`titleMatch`) contra `telegram_sent_messages`.
+- Incluye verificacion activa en Telegram para mensajes Android rastreados; si un mensaje fue borrado manualmente del canal, se marca como faltante y se republica automaticamente.
+- Si detecta juegos en memoria sin envio confirmado, intenta publicarlos y actualizar estado.
+
+Control de verificacion activa por corrida:
+
+- `ANDROID_MAX_EXISTENCE_CHECK_PER_RUN` (default: `25`): limite de mensajes Android verificados en Telegram por ejecucion para evitar saturacion.
+
+Estados de publicacion Android (`published_games_android`):
+
+- `pending_send`: juego en memoria aun no enviado.
+- `sent_unverified`: juego enviado, pendiente de verificacion en tracking.
+- `sent_verified`: juego enviado y verificado en tracking.
+
+6. **Reporte Diario + Alerta (Netlify Functions):**
+
+- `android-status-report` genera un resumen diario de estados Android.
+- Si detecta `pending_send` o `sent_unverified` por encima de umbral, envia alerta por Telegram.
+- Variables opcionales:
+  - `ANDROID_STATUS_ALERT_ENABLED` (default: `true`)
+  - `ANDROID_STATUS_ALERT_CHAT_ID` (si no existe, usa `CHANNEL_ID`)
+  - `ANDROID_STATUS_ALERT_PENDING_THRESHOLD` (default: `1`)
+  - `ANDROID_STATUS_ALERT_UNVERIFIED_THRESHOLD` (default: `1`)
+
+7. **Reconciliador Diario PC (Netlify Functions):**
+
+- `verify-pc-publications` corre 1 vez al dia para reconciliar `published_games_pc` con el tracking de Telegram.
+- Si un mensaje PC rastreado fue borrado manualmente del canal, se detecta como faltante y se republica automaticamente.
+- Limites operativos opcionales:
+  - `PC_MAX_EXISTENCE_CHECK_PER_RUN` (default: `25`)
+  - `PC_MAX_REPUBLISH_PER_RUN` (default: `25`)
+
+8. **Reporte Diario + Alerta PC (Netlify Functions):**
+
+- `pc-status-report` genera un resumen diario de estados PC.
+- Si detecta `pending_send` o `sent_unverified` por encima de umbral, envia alerta por Telegram.
+- Variables opcionales:
+  - `PC_STATUS_ALERT_ENABLED` (default: `true`)
+  - `PC_STATUS_ALERT_CHAT_ID` (si no existe, usa `CHANNEL_ID`)
+  - `PC_STATUS_ALERT_PENDING_THRESHOLD` (default: `1`)
+  - `PC_STATUS_ALERT_UNVERIFIED_THRESHOLD` (default: `1`)
+
 Métricas mínimas en logs:
 
 - `items_produced`
@@ -99,16 +144,9 @@ Métricas mínimas en logs:
 
 Prerequisitos:
 
-- Secrets en GitHub: `NETLIFY_SITE_ID`, `NETLIFY_API_TOKEN`.
-- Variables en Netlify para el consumidor: `TELEGRAM_TOKEN`, `CHANNEL_ID`.
-
 Pasos:
 
 1. Ejecutar manualmente estos workflows:
-
-- `Producer Android Queue`
-- `Producer Android RSS Queue`
-- `Producer PC Queue`
 
 2. Verificar colas en Blobs:
    - `npm run blobs:show`
@@ -116,15 +154,13 @@ Pasos:
 4. Verificar en Telegram:
    - Publicaciones nuevas.
 
-- Mensajes expirados eliminados del canal.
-
 5. Revisar logs buscando líneas `[metrics]`.
-
----
 
 ## 🛠️ Runbook Rápido
 
 ### Reprocesar colas
+
+`manual-status` incluye el último resultado del smoke en un bloque `deleteSmoke`, para que la corrida semanal te diga si el borrado real pasó o falló.
 
 Si quieres reprocesar publicaciones/expirados, vuelve a disparar el productor:
 
@@ -161,7 +197,10 @@ Tambien se programo una limpieza diaria de mensajes huerfanos en Telegram:
 
 - `clean-orphan-telegram`: todos los dias 03:30 UTC.
 
-- `manual-status`: consulta resumen de memoria/colas/expirados/backlog antes de ejecutar limpieza.
+- `manual-status`: consulta resumen de memoria/colas/expirados/backlog y tambien el ultimo resultado de `manual-delete-smoke`.
+- `manual-android-status-report`: consulta bajo demanda el estado Android (`pending_send`, `sent_unverified`, `sent_verified`) y opcionalmente envia alerta Telegram.
+- `manual-pc-status-report`: consulta bajo demanda el estado PC (`pending_send`, `sent_unverified`, `sent_verified`) y opcionalmente envia alerta Telegram.
+- `manual-delete-smoke`: envia un mensaje temporal a Telegram y lo borra enseguida para validar permisos reales de borrado.
 - `manual-clean-memory`: limpia toda la memoria operativa (publicados, colas y expirados).
 - `manual-clean-telegram`: borra mensajes rastreados del bot en Telegram y sincroniza memoria.
 - `manual-run-all`: ejecuta esta secuencia completa:
@@ -171,6 +210,35 @@ Tambien se programo una limpieza diaria de mensajes huerfanos en Telegram:
   4. `check-pc`
   5. `clean-expired`
   6. `clean-duplicates`
+  7. `manual-delete-smoke`
+  8. `manual-status`
+
+### Smoke de Borrado Telegram
+
+`manual-delete-smoke` sirve para comprobar de punta a punta que el bot puede crear y borrar mensajes en el chat objetivo.
+
+`manual-status` mostrara el ultimo resultado guardado del smoke en el bloque `deleteSmoke` para que la corrida semanal deje evidencia del borrado real.
+
+Variables que puede usar:
+
+- `SMOKE_TELEGRAM_CHAT_ID`: chat objetivo para la prueba si no quieres usar `CHANNEL_ID`.
+- `MANUAL_FUNCTION_KEY`: clave opcional para proteger la function manual.
+
+Comportamiento:
+
+- Si llamas sin `skipDelete`, crea un mensaje temporal y lo borra inmediatamente.
+- Si llamas con `skipDelete=true`, solo crea el mensaje y te devuelve el `messageId` para una comprobacion parcial.
+- Si pasas `chatId` en la query, ese valor tiene prioridad sobre `SMOKE_TELEGRAM_CHAT_ID` y `CHANNEL_ID`.
+
+Ejemplos utiles:
+
+```bash
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke?chatId=@tu_canal&skipDelete=true" \
+  -H "x-manual-key: <tu_clave>"
+```
 
 Importante sobre `manual-status` y `manual-clean-telegram`:
 
@@ -205,10 +273,47 @@ curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status" \
 curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status?includeSamples=true&sampleSize=5" \
   -H "x-manual-key: <tu_clave>"
 
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-android-status-report" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-android-status-report?forceAlert=true" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-pc-status-report" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-pc-status-report?forceAlert=true" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke" \
+  -H "x-manual-key: <tu_clave>"
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-delete-smoke?chatId=@tu_canal&skipDelete=true" \
+  -H "x-manual-key: <tu_clave>"
+
 curl -X POST "https://<tu-sitio>.netlify.app/.netlify/functions/manual-run-all" \
   -H "x-manual-key: <tu_clave>" \
   -H "content-type: application/json" \
   -d '{"stopOnError":true}'
+
+Ejecucion completa recomendada (con verificacion de smoke incluida en el cierre):
+
+1. Ejecuta toda la cadena manual:
+
+curl -X POST "https://<tu-sitio>.netlify.app/.netlify/functions/manual-run-all" \
+  -H "x-manual-key: <tu_clave>" \
+  -H "content-type: application/json" \
+  -d '{"stopOnError":true}'
+
+2. Consulta el snapshot final y valida deleteSmoke:
+
+curl "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status" \
+  -H "x-manual-key: <tu_clave>"
+
+Si tienes jq instalado, puedes extraer solo el bloque de verificacion de borrado:
+
+curl -s "https://<tu-sitio>.netlify.app/.netlify/functions/manual-status" \
+  -H "x-manual-key: <tu_clave>" | jq '.result.deleteSmoke'
 ```
 
 ### Recuperar memoria corrupta
@@ -280,11 +385,35 @@ Para evitar accidentes durante las pruebas, existe una función schedulada que *
 ### ¿Cómo funciona?
 
 - Corre **cada 12 horas** (configurable en `netlify.toml`).
-- Agrupa mensajes por ID de juego
-- Detecta duplicados (más de 1 copia del mismo juego)
+- Detecta duplicados por **ID de juego** y tambien por **nombre normalizado**.
+- La deteccion por nombre aplica solo si:
+  - la plataforma coincide (`android` con `android`, `pc` con `pc`),
+  - el nombre es suficientemente especifico,
+  - el nombre no es generico (ej. `premium`, `game`, `free`).
 - Compara por antigüedad (`publishedAt`)
 - **Elimina los más antiguos, mantiene el más reciente**
 - Registra detalles en los logs de Netlify
+
+Variable opcional para ajustar nombres genericos en deduplicacion por nombre:
+
+```bash
+CLEAN_DUPLICATES_GENERIC_TOKENS="app,apps,game,games,premium,pro,vip,free,gratis,offer,deal"
+```
+
+- Formato: lista separada por comas.
+- Si no se define, se usa la lista por defecto mostrada arriba.
+
+Valor inicial recomendado para produccion (con bajo riesgo de falso positivo):
+
+```bash
+CLEAN_DUPLICATES_GENERIC_TOKENS="app,apps,game,games,premium,pro,vip,free,gratis,offer,deal,bundle,starter,edition,ultimate,deluxe"
+```
+
+Ajuste recomendado en 3 pasos:
+
+1. Arranca con el valor recomendado y revisa logs de `clean-duplicates` por 3 a 5 dias.
+2. Si ves falsos positivos por nombre, agrega terminos genericos al final de la lista.
+3. Si ves falsos negativos (duplicados no detectados), elimina solo los terminos estrictamente necesarios.
 
 ### Métricas
 

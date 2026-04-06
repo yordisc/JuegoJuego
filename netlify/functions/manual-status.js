@@ -6,6 +6,8 @@ const {
 } = require("../../utils/netlify-blobs");
 const { getMaintenanceSnapshot } = require("../../services/manual-maintenance");
 
+const KEY_MANUAL_DELETE_SMOKE_RESULT = "manual_delete_smoke_result";
+
 function isAuthorized(event) {
   const requiredKey = process.env.MANUAL_FUNCTION_KEY;
   if (!requiredKey) {
@@ -56,6 +58,49 @@ function getManualLogLevel() {
   return raw === "debug" ? "debug" : "compact";
 }
 
+async function readDeleteSmokeResult(store) {
+  try {
+    const raw = await store.get(KEY_MANUAL_DELETE_SMOKE_RESULT);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    return {
+      success: Boolean(parsed.success),
+      action: typeof parsed.action === "string" ? parsed.action : "manual-delete-smoke",
+      step: typeof parsed.step === "string" ? parsed.step : null,
+      chatId:
+        typeof parsed.chatId === "string" && parsed.chatId.trim()
+          ? parsed.chatId.trim()
+          : null,
+      messageId: Number.isInteger(parsed.messageId) ? parsed.messageId : null,
+      skipDelete: Boolean(parsed.skipDelete),
+      sendStatus: Number.isInteger(parsed.sendStatus) ? parsed.sendStatus : null,
+      deleteStatus: Number.isInteger(parsed.deleteStatus) ? parsed.deleteStatus : null,
+      error:
+        typeof parsed.error === "string" && parsed.error.trim()
+          ? parsed.error.trim()
+          : null,
+      deleteError:
+        typeof parsed.deleteError === "string" && parsed.deleteError.trim()
+          ? parsed.deleteError.trim()
+          : null,
+      updatedAt:
+        typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()
+          ? parsed.updatedAt.trim()
+          : null,
+    };
+  } catch (err) {
+    console.warn(`[manual-status] No se pudo leer el ultimo smoke de borrado: ${err.message}`);
+    return null;
+  }
+}
+
 exports.handler = async (event) => {
   if (!isAuthorized(event)) {
     return {
@@ -97,6 +142,11 @@ exports.handler = async (event) => {
       includeSamples,
       sampleSize,
     });
+    const deleteSmoke = await readDeleteSmokeResult(store);
+
+    if (deleteSmoke) {
+      result.deleteSmoke = deleteSmoke;
+    }
 
     console.log(
       "[manual-status] summary:",
@@ -111,6 +161,12 @@ exports.handler = async (event) => {
       console.log(
         "[manual-status] tracking:",
         JSON.stringify(result.tracking)
+      );
+    }
+    if (deleteSmoke) {
+      console.log(
+        "[manual-status] delete-smoke:",
+        JSON.stringify(deleteSmoke)
       );
     }
     if (Array.isArray(result.warnings) && result.warnings.length > 0) {
@@ -145,6 +201,7 @@ exports.handler = async (event) => {
         action: "manual-status",
         includeSamples,
         sampleSize,
+        deleteSmoke,
         result,
       }),
     };

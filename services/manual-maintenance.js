@@ -1,6 +1,8 @@
 const {
   getPublishedGamesList,
+  normalizePublicationStatus,
   savePublishedGamesList,
+  normalizeTitleForMatch,
 } = require("../utils/memory");
 const { requestWithRetry } = require("../utils/telegram");
 
@@ -10,6 +12,7 @@ const KEY_ANDROID_EXPIRED = "android_expired";
 const KEY_PC_EXPIRED = "pc_expired";
 const KEY_MANUAL_TELEGRAM_BACKLOG = "manual_telegram_cleanup_queue";
 const KEY_TELEGRAM_SENT_MESSAGES = "telegram_sent_messages";
+const KEY_MANUAL_DELETE_SMOKE_RESULT = "manual_delete_smoke_result";
 
 function toId(entry) {
   if (typeof entry === "string") {
@@ -79,6 +82,21 @@ async function readJsonArray(store, key) {
   }
 }
 
+async function readJsonObject(store, key) {
+  const raw = await store.get(key);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    console.warn(`[manual-maintenance] JSON invalido en ${key}, se ignora el objeto`);
+    return null;
+  }
+}
+
 function uniqueValidMessageIds(items) {
   const result = new Set();
 
@@ -123,12 +141,52 @@ function toTrackedMessageEntry(entry) {
       ? publishedAtRaw
       : Date.now();
 
-  return {
+  const titleRaw =
+    entry && typeof entry === "object" && typeof entry.title === "string"
+      ? entry.title.trim()
+      : "";
+  const title = titleRaw || null;
+  const titleMatch = normalizeTitleForMatch(title || id || "");
+  const chatIdRaw =
+    entry && typeof entry === "object" && entry.chatId != null
+      ? String(entry.chatId).trim()
+      : "";
+  const chatId = chatIdRaw || null;
+
+  const messageKindRaw =
+    entry && typeof entry === "object" && typeof entry.messageKind === "string"
+      ? entry.messageKind.trim().toLowerCase()
+      : "";
+  const messageKind = messageKindRaw === "photo" ? "photo" : messageKindRaw === "text" ? "text" : null;
+
+  const messageTextRaw =
+    entry && typeof entry === "object" && typeof entry.messageText === "string"
+      ? entry.messageText.trim()
+      : "";
+  const messageText = messageTextRaw || null;
+
+  const normalized = {
     id: id || null,
     messageId,
     platform,
     publishedAt,
+    title,
+    titleMatch,
   };
+
+  if (chatId) {
+    normalized.chatId = chatId;
+  }
+
+  if (messageKind) {
+    normalized.messageKind = messageKind;
+  }
+
+  if (messageText) {
+    normalized.messageText = messageText;
+  }
+
+  return normalized;
 }
 
 function dedupeTrackedMessages(items) {
@@ -150,7 +208,7 @@ function dedupeTrackedMessages(items) {
       continue;
     }
 
-    byMessageId.set(parsed.messageId, {
+    const merged = {
       id: parsed.id || prev.id || null,
       messageId: parsed.messageId,
       platform: parsed.platform || prev.platform || null,
@@ -158,7 +216,32 @@ function dedupeTrackedMessages(items) {
         Number.isInteger(prev.publishedAt) && prev.publishedAt > 0
           ? prev.publishedAt
           : parsed.publishedAt,
-    });
+      title: parsed.title || prev.title || null,
+      titleMatch: parsed.titleMatch || prev.titleMatch || "",
+    };
+
+    const mergedChatId =
+      (parsed && parsed.chatId != null ? String(parsed.chatId).trim() : "") ||
+      (prev && prev.chatId != null ? String(prev.chatId).trim() : "");
+    if (mergedChatId) {
+      merged.chatId = mergedChatId;
+    }
+
+    const mergedMessageKind =
+      (parsed && parsed.messageKind != null ? String(parsed.messageKind).trim().toLowerCase() : "") ||
+      (prev && prev.messageKind != null ? String(prev.messageKind).trim().toLowerCase() : "");
+    if (mergedMessageKind === "photo" || mergedMessageKind === "text") {
+      merged.messageKind = mergedMessageKind;
+    }
+
+    const mergedMessageText =
+      (parsed && parsed.messageText != null ? String(parsed.messageText).trim() : "") ||
+      (prev && prev.messageText != null ? String(prev.messageText).trim() : "");
+    if (mergedMessageText) {
+      merged.messageText = mergedMessageText;
+    }
+
+    byMessageId.set(parsed.messageId, merged);
   }
 
   return Array.from(byMessageId.values()).sort((a, b) => {
@@ -198,6 +281,34 @@ function isTelegramDeleteNotFound(status, errorText) {
   }
 
   return /message to delete not found/i.test(String(errorText || ""));
+}
+
+function shouldResolveNotFoundByChat(entry, currentChatId) {
+  const trackedChatId =
+    entry && typeof entry === "object" && entry.chatId != null
+      ? String(entry.chatId).trim()
+      : "";
+  const runningChatId = currentChatId != null ? String(currentChatId).trim() : "";
+
+  // Si no tenemos chatId en tracking, mantenemos compatibilidad retroactiva.
+  if (!trackedChatId || !runningChatId) {
+    return true;
+  }
+
+  return trackedChatId === runningChatId;
+}
+
+function resolveEntryChatId(entry, fallbackChatId) {
+  const trackedChatId =
+    entry && typeof entry === "object" && entry.chatId != null
+      ? String(entry.chatId).trim()
+      : "";
+
+  if (trackedChatId) {
+    return trackedChatId;
+  }
+
+  return fallbackChatId != null ? String(fallbackChatId).trim() : "";
 }
 
 function collectMessageIds(items) {
@@ -275,31 +386,55 @@ async function deleteTrackedTelegramMessages(store) {
       source: "android-published",
       id: toId(entry),
       messageId: toMessageId(entry),
+      chatId:
+        entry && typeof entry === "object" && entry.chatId != null
+          ? String(entry.chatId)
+          : null,
     })),
     ...pcPublished.map((entry) => ({
       source: "pc-published",
       id: toId(entry),
       messageId: toMessageId(entry),
+      chatId:
+        entry && typeof entry === "object" && entry.chatId != null
+          ? String(entry.chatId)
+          : null,
     })),
     ...androidExpired.map((entry) => ({
       source: "android-expired",
       id: toId(entry),
       messageId: toMessageId(entry),
+      chatId:
+        entry && typeof entry === "object" && entry.chatId != null
+          ? String(entry.chatId)
+          : null,
     })),
     ...pcExpired.map((entry) => ({
       source: "pc-expired",
       id: toId(entry),
       messageId: toMessageId(entry),
+      chatId:
+        entry && typeof entry === "object" && entry.chatId != null
+          ? String(entry.chatId)
+          : null,
     })),
     ...backlogItems.map((entry) => ({
       source: "manual-backlog",
       id: toId(entry) || `message-${toMessageId(entry)}`,
       messageId: toMessageId(entry),
+      chatId:
+        entry && typeof entry === "object" && entry.chatId != null
+          ? String(entry.chatId)
+          : null,
     })),
     ...trackedSent.map((entry) => ({
       source: `tracked-${entry.platform || "unknown"}`,
       id: toId(entry) || `message-${toMessageId(entry)}`,
       messageId: toMessageId(entry),
+      chatId:
+        entry && typeof entry === "object" && entry.chatId != null
+          ? String(entry.chatId)
+          : null,
     })),
   ];
 
@@ -325,11 +460,13 @@ async function deleteTrackedTelegramMessages(store) {
   const failedMessageIds = new Set();
 
   for (const item of uniqueMessages) {
+    const chatId = resolveEntryChatId(item, process.env.CHANNEL_ID);
+
     try {
       const response = await requestWithRetry(
         `${telegramBase}/deleteMessage`,
         {
-          chat_id: process.env.CHANNEL_ID,
+          chat_id: chatId,
           message_id: item.messageId,
         }
       );
@@ -343,6 +480,15 @@ async function deleteTrackedTelegramMessages(store) {
       const text = await response.text().catch(() => `HTTP ${response.status}`);
 
       if (isTelegramDeleteNotFound(response.status, text)) {
+        if (!shouldResolveNotFoundByChat(item, chatId)) {
+          failed += 1;
+          failedMessageIds.add(item.messageId);
+          console.warn(
+            `[manual-maintenance] Not found para ${item.messageId}, pero chatId no coincide (tracked=${item.chatId}, current=${chatId}). Se conserva para revision.`
+          );
+          continue;
+        }
+
         deleted += 1;
         deletedNotFound += 1;
         deletedMessageIds.add(item.messageId);
@@ -443,10 +589,6 @@ async function cleanTelegramOrphanMessages(store) {
   const androidPublished = await getPublishedGamesList(store, "android");
   const pcPublished = await getPublishedGamesList(store, "pc");
   const trackedSent = await readTrackedMessages(store);
-
-  const activeIds = new Set(
-    [...androidPublished, ...pcPublished].map((entry) => toId(entry)).filter(Boolean)
-  );
   const activeMessageIds = new Set(
     [...androidPublished, ...pcPublished]
       .map((entry) => toMessageId(entry))
@@ -455,17 +597,12 @@ async function cleanTelegramOrphanMessages(store) {
 
   const orphanCandidates = trackedSent.filter((entry) => {
     const messageId = toMessageId(entry);
-    const id = toId(entry);
 
     if (!Number.isInteger(messageId)) {
       return false;
     }
 
     if (activeMessageIds.has(messageId)) {
-      return false;
-    }
-
-    if (id && activeIds.has(id)) {
       return false;
     }
 
@@ -480,11 +617,13 @@ async function cleanTelegramOrphanMessages(store) {
 
   for (const item of orphanCandidates) {
     const messageId = toMessageId(item);
+    const chatId = resolveEntryChatId(item, process.env.CHANNEL_ID);
+
     try {
       const response = await requestWithRetry(
         `${telegramBase}/deleteMessage`,
         {
-          chat_id: process.env.CHANNEL_ID,
+          chat_id: chatId,
           message_id: messageId,
         }
       );
@@ -498,6 +637,15 @@ async function cleanTelegramOrphanMessages(store) {
       const text = await response.text().catch(() => `HTTP ${response.status}`);
 
       if (isTelegramDeleteNotFound(response.status, text)) {
+        if (!shouldResolveNotFoundByChat(item, chatId)) {
+          failed += 1;
+          failedMessageIds.add(messageId);
+          console.warn(
+            `[manual-maintenance] Not found para huerfano ${messageId}, pero chatId no coincide (tracked=${item.chatId}, current=${chatId}). Se conserva para revision.`
+          );
+          continue;
+        }
+
         deleted += 1;
         deletedNotFound += 1;
         deletedMessageIds.add(messageId);
@@ -559,6 +707,28 @@ async function getMaintenanceSnapshot(store, options = {}) {
   const pcExpired = dedupeById(await readJsonArray(store, KEY_PC_EXPIRED));
   const backlog = dedupeById(await readJsonArray(store, KEY_MANUAL_TELEGRAM_BACKLOG));
   const trackedSent = await readTrackedMessages(store);
+  const deleteSmoke = await readJsonObject(store, KEY_MANUAL_DELETE_SMOKE_RESULT);
+
+  const androidStatus = {
+    pendingSend: 0,
+    sentUnverified: 0,
+    sentVerified: 0,
+  };
+
+  for (const entry of androidPublished) {
+    const status = normalizePublicationStatus(entry.status, toMessageId(entry));
+    if (status === "sent_verified") {
+      androidStatus.sentVerified += 1;
+      continue;
+    }
+
+    if (status === "sent_unverified") {
+      androidStatus.sentUnverified += 1;
+      continue;
+    }
+
+    androidStatus.pendingSend += 1;
+  }
 
   const messageIds = new Set([
     ...Array.from(uniqueValidMessageIds(androidPublished)),
@@ -578,6 +748,7 @@ async function getMaintenanceSnapshot(store, options = {}) {
     pcExpired: pcExpired.length,
     telegramBacklog: backlog.length,
     trackedTelegramMessages: messageIds.size,
+    androidStatus,
   };
 
   const tracking = {
@@ -604,7 +775,7 @@ async function getMaintenanceSnapshot(store, options = {}) {
   }
 
   if (!includeSamples) {
-    return { summary, tracking, warnings };
+    return { summary, tracking, warnings, deleteSmoke };
   }
 
   const sampleFrom = (items) =>
@@ -619,6 +790,7 @@ async function getMaintenanceSnapshot(store, options = {}) {
     summary,
     tracking,
     warnings,
+    deleteSmoke,
     samples: {
       androidQueue: sampleFrom(androidQueue),
       pcQueue: sampleFrom(pcQueue),

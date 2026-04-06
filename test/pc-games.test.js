@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { checkPCGames } = require("../services/pc-games");
+const {
+  checkPCGames,
+  reconcilePCPublications,
+} = require("../services/pc-games");
 
 process.env.TELEGRAM_TOKEN = "test-token";
 process.env.CHANNEL_ID = "@testchannel";
@@ -194,5 +197,157 @@ test("Suite PC Consumer", async (t) => {
     assert.strictEqual(result.expiredCount, 1);
     assert.strictEqual(publishedGames.length, 0);
     assert.deepStrictEqual(snapshot.pc_expired, []);
+  });
+
+  await t.test("Reconciliacion verifica por tracking de id/titulo y republica pendientes", async () => {
+    const calls = [];
+    global.fetch = async (url, opts) => {
+      calls.push({ url, body: JSON.parse(opts.body || "{}") });
+
+      if (url.includes("sendMessage")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 444 } }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      };
+    };
+
+    const store = createStore({
+      telegram_sent_messages: [
+        {
+          id: "pc.already.sent",
+          title: "PC Already Sent",
+          titleMatch: "pc already sent",
+          messageId: 333,
+          platform: "pc",
+          publishedAt: 10,
+          messageKind: "text",
+          messageText: "Hello",
+        },
+      ],
+    });
+
+    const publishedGames = [
+      {
+        id: "pc.already.sent",
+        title: "PC Already Sent",
+        messageId: null,
+        status: "pending_send",
+      },
+      {
+        id: "pc.needs.publish",
+        title: "PC Needs Publish",
+        messageId: null,
+        status: "pending_send",
+      },
+    ];
+
+    const result = await reconcilePCPublications(store, publishedGames, {
+      maxRepublishPerRun: 5,
+      maxExistenceChecks: 0,
+    });
+
+    assert.strictEqual(result.verifiedCount, 1);
+    assert.strictEqual(result.republishedCount, 1);
+    assert.strictEqual(result.republishErrors, 0);
+
+    const verified = publishedGames.find((item) => item.id === "pc.already.sent");
+    const republished = publishedGames.find((item) => item.id === "pc.needs.publish");
+
+    assert.strictEqual(verified.messageId, 333);
+    assert.strictEqual(verified.status, "sent_verified");
+
+    assert.strictEqual(republished.messageId, 444);
+    assert.strictEqual(republished.status, "sent_unverified");
+
+    assert.strictEqual(
+      calls.filter((entry) => entry.url.includes("sendMessage")).length,
+      1
+    );
+  });
+
+  await t.test("Reconciliacion reprocesa juego PC si el mensaje rastreado ya no existe en Telegram", async () => {
+    const calls = [];
+    global.fetch = async (url, opts) => {
+      const body = JSON.parse(opts.body || "{}");
+      calls.push({ url, body });
+
+      if (url.includes("editMessageText")) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message to edit not found",
+            }),
+        };
+      }
+
+      if (url.includes("sendMessage")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 888 } }),
+        };
+      }
+
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+
+    const store = createStore({
+      telegram_sent_messages: [
+        {
+          id: "pc.deleted.by.admin",
+          title: "PC Deleted By Admin",
+          titleMatch: "pc deleted by admin",
+          messageId: 777,
+          messageKind: "text",
+          messageText: "🎮 **FREE PC GAME!** 🎮\n\n⭐ *Title:* PC Deleted By Admin",
+          platform: "pc",
+          publishedAt: 1,
+        },
+      ],
+    });
+
+    const publishedGames = [
+      {
+        id: "pc.deleted.by.admin",
+        title: "PC Deleted By Admin",
+        messageId: 777,
+        status: "sent_verified",
+      },
+    ];
+
+    const result = await reconcilePCPublications(store, publishedGames, {
+      maxRepublishPerRun: 5,
+      maxExistenceChecks: 5,
+    });
+
+    assert.strictEqual(result.existenceChecks, 1);
+    assert.strictEqual(result.existenceMissing, 1);
+    assert.strictEqual(result.republishedCount, 1);
+
+    assert.strictEqual(publishedGames[0].messageId, 888);
+    assert.strictEqual(publishedGames[0].status, "sent_unverified");
+
+    assert.strictEqual(
+      calls.filter((entry) => entry.url.includes("editMessageText")).length,
+      1
+    );
+    assert.strictEqual(
+      calls.filter((entry) => entry.url.includes("sendMessage")).length,
+      1
+    );
+
+    const snapshot = store.snapshot();
+    assert.strictEqual(Array.isArray(snapshot.telegram_sent_messages), true);
+    assert.strictEqual(snapshot.telegram_sent_messages.some((item) => item.messageId === 777), false);
+    assert.strictEqual(snapshot.telegram_sent_messages.some((item) => item.messageId === 888), true);
   });
 });

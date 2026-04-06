@@ -6,6 +6,8 @@ const { handler: checkAndroidHandler } = require("./check-android");
 const { handler: checkPcHandler } = require("./check-pc");
 const { handler: cleanExpiredHandler } = require("./clean-expired");
 const { handler: cleanDuplicatesHandler } = require("./clean-duplicates");
+const { handler: manualStatusHandler } = require("./manual-status");
+const { handler: manualDeleteSmokeHandler } = require("./manual-delete-smoke");
 
 function isAuthorized(event) {
   const requiredKey = process.env.MANUAL_FUNCTION_KEY;
@@ -97,6 +99,8 @@ exports.handler = async (event) => {
     ["check-pc", checkPcHandler],
     ["clean-expired", cleanExpiredHandler],
     ["clean-duplicates", cleanDuplicatesHandler],
+    ["manual-delete-smoke", manualDeleteSmokeHandler],
+    ["manual-status", manualStatusHandler],
   ];
 
   const results = [];

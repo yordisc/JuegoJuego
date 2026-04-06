@@ -53,8 +53,22 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       const result = await getPublishedGamesList(mockStoreWithData);
 
       assert.deepStrictEqual(result, [
-        { id: "com.game.one", messageId: null, publishedAt: null },
-        { id: "com.game.two", messageId: null, publishedAt: null },
+        {
+          id: "com.game.one",
+          messageId: null,
+          publishedAt: null,
+          status: "pending_send",
+          title: null,
+          titleMatch: "com game one",
+        },
+        {
+          id: "com.game.two",
+          messageId: null,
+          publishedAt: null,
+          status: "pending_send",
+          title: null,
+          titleMatch: "com game two",
+        },
       ]);
     }
   );
@@ -78,9 +92,30 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
 
       assert.strictEqual(llaveGuardada, "published_games_android");
       assert.deepStrictEqual(datosQueSeIntentanGuardar, [
-        { id: "juego_A", messageId: null, publishedAt: null },
-        { id: "juego_B", messageId: null, publishedAt: null },
-        { id: "juego_C", messageId: null, publishedAt: null },
+        {
+          id: "juego_A",
+          messageId: null,
+          publishedAt: null,
+          status: "pending_send",
+          title: null,
+          titleMatch: "juego a",
+        },
+        {
+          id: "juego_B",
+          messageId: null,
+          publishedAt: null,
+          status: "pending_send",
+          title: null,
+          titleMatch: "juego b",
+        },
+        {
+          id: "juego_C",
+          messageId: null,
+          publishedAt: null,
+          status: "pending_send",
+          title: null,
+          titleMatch: "juego c",
+        },
       ]);
     }
   );
@@ -112,8 +147,50 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       const result = normalizePublishedGames(mixed);
 
       assert.deepStrictEqual(result, [
-        { id: "com.legacy.one", messageId: null, publishedAt: null },
-        { id: "com.new.one", messageId: 123, publishedAt: null },
+        {
+          id: "com.legacy.one",
+          messageId: null,
+          publishedAt: null,
+          status: "pending_send",
+          title: null,
+          titleMatch: "com legacy one",
+        },
+        {
+          id: "com.new.one",
+          messageId: 123,
+          publishedAt: null,
+          status: "sent_unverified",
+          title: null,
+          titleMatch: "com new one",
+        },
+      ]);
+    }
+  );
+
+  await t.test(
+    "Caso 7: Debe conservar estado sent_verified cuando viene en memoria",
+    async () => {
+      const raw = [
+        {
+          id: "com.status.ok",
+          messageId: 321,
+          publishedAt: 1111,
+          status: "sent_verified",
+          title: "Status Game",
+        },
+      ];
+
+      const result = normalizePublishedGames(raw);
+
+      assert.deepStrictEqual(result, [
+        {
+          id: "com.status.ok",
+          messageId: 321,
+          publishedAt: 1111,
+          status: "sent_verified",
+          title: "Status Game",
+          titleMatch: "status game",
+        },
       ]);
     }
   );

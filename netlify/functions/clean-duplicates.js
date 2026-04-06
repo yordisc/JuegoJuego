@@ -39,12 +39,24 @@ function normalizeTrackedEntry(entry) {
     typeof entry.platform === "string" ? entry.platform.trim().toLowerCase() : "";
   const platform = platformRaw === "pc" ? "pc" : platformRaw === "android" ? "android" : null;
   const publishedAt = Number.isInteger(entry.publishedAt) ? entry.publishedAt : Date.now();
+  const title =
+    typeof entry.title === "string" && entry.title.trim()
+      ? entry.title.trim()
+      : null;
+  const titleMatch =
+    typeof entry.titleMatch === "string" && entry.titleMatch.trim()
+      ? entry.titleMatch.trim()
+      : null;
+  const chatId =
+    entry.chatId != null && String(entry.chatId).trim()
+      ? String(entry.chatId).trim()
+      : null;
 
   if (!id || !isValidMessageId(messageId)) {
     return null;
   }
 
-  return { id, messageId, platform, publishedAt };
+  return { id, messageId, platform, publishedAt, title, titleMatch, chatId };
 }
 
 function dedupeTrackedByMessageId(tracked = []) {

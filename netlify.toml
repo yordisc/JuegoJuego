@@ -30,6 +30,26 @@
   # Ejecutar 1 vez al día a las 03:30 AM UTC
   schedule = "30 3 * * *"
 
+# Microservicio 6: Verificacion diaria de publicaciones Android en memoria
+[functions.verify-android-publications]
+  # Ejecutar 1 vez al dia para reconciliar estado memoria <-> Telegram
+  schedule = "0 4 * * *"
+
+# Microservicio 7: Reporte diario de estado Android y alerta automatica
+[functions.android-status-report]
+  # Ejecutar diario despues de la reconciliacion
+  schedule = "10 4 * * *"
+
+# Microservicio 8: Verificacion diaria de publicaciones PC en memoria
+[functions.verify-pc-publications]
+  # Ejecutar diario para reconciliar estado memoria <-> Telegram en PC
+  schedule = "20 4 * * *"
+
+# Microservicio 9: Reporte diario de estado PC y alerta automatica
+[functions.pc-status-report]
+  # Ejecutar diario despues de la reconciliacion de PC
+  schedule = "30 4 * * *"
+
 # Mantenimiento semanal (manual functions programadas)
 [functions.manual-run-all]
   # Primer dia de la semana (lunes) a primera hora: 01:00 UTC

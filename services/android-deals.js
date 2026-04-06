@@ -2,8 +2,17 @@
 
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
+const {
+  PUBLICATION_STATUS,
+  normalizePublicationStatus,
+  normalizeTitleForMatch,
+} = require("../utils/memory");
 const { requestWithRetry } = require("../utils/telegram");
-const { trackTelegramMessage } = require("./manual-maintenance");
+const {
+  readTrackedMessages,
+  saveTrackedMessages,
+  trackTelegramMessage,
+} = require("./manual-maintenance");
 
 function getPublishedGameId(entry) {
   if (typeof entry === "string") {
@@ -32,6 +41,15 @@ function getPublishedMessageId(entry) {
   }
 
   return null;
+}
+
+function getPublishedChatId(entry, fallback = process.env.CHANNEL_ID) {
+  const raw = entry && typeof entry === "object" && entry.chatId != null ? String(entry.chatId).trim() : "";
+  if (raw) {
+    return raw;
+  }
+
+  return fallback != null ? String(fallback).trim() : "";
 }
 
 async function readJsonArray(store, key) {
@@ -108,6 +126,59 @@ function dedupeById(items) {
   return result;
 }
 
+function buildPublishedEntry(item, messageId, publishedAt, status) {
+  const id = getPublishedGameId(item);
+  const title =
+    item && typeof item === "object" && typeof item.title === "string"
+      ? item.title.trim() || null
+      : null;
+  const titleMatch = normalizeTitleForMatch(title || id);
+
+  return {
+    id,
+    messageId: Number.isInteger(messageId) ? messageId : null,
+    publishedAt: Number.isInteger(publishedAt) ? publishedAt : Date.now(),
+    status: normalizePublicationStatus(status, messageId),
+    title,
+    titleMatch,
+    chatId: getPublishedChatId(item),
+  };
+}
+
+function normalizeTrackedMap(trackedSent = []) {
+  const byMessageId = new Map();
+  const byId = new Map();
+  const byTitle = new Map();
+
+  for (const tracked of trackedSent) {
+    const messageId = getPublishedMessageId(tracked);
+    if (!Number.isInteger(messageId)) {
+      continue;
+    }
+
+    const id = getPublishedGameId(tracked);
+    const titleMatch = normalizeTitleForMatch(
+      tracked && typeof tracked === "object"
+        ? tracked.titleMatch || tracked.title || id
+        : id
+    );
+
+    if (!byMessageId.has(messageId)) {
+      byMessageId.set(messageId, tracked);
+    }
+
+    if (id && !byId.has(id)) {
+      byId.set(id, tracked);
+    }
+
+    if (titleMatch && !byTitle.has(titleMatch)) {
+      byTitle.set(titleMatch, tracked);
+    }
+  }
+
+  return { byMessageId, byId, byTitle };
+}
+
 function escapeTelegramMarkdownText(value) {
   return String(value ?? "").replace(/([_\*\[\]\(\)`\\])/g, "\\$1");
 }
@@ -140,7 +211,7 @@ async function sendAndroidPublication(item) {
   const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
 
   if (item.icon) {
-    return requestWithRetry(
+    const response = await requestWithRetry(
       `${telegramBase}/sendPhoto`,
       {
         chat_id: process.env.CHANNEL_ID,
@@ -149,9 +220,17 @@ async function sendAndroidPublication(item) {
         parse_mode: "Markdown",
       }
     );
+
+    return {
+      response,
+      publication: {
+        messageKind: "photo",
+        messageText: message,
+      },
+    };
   }
 
-  return requestWithRetry(
+  const response = await requestWithRetry(
     `${telegramBase}/sendMessage`,
     {
       chat_id: process.env.CHANNEL_ID,
@@ -160,18 +239,94 @@ async function sendAndroidPublication(item) {
       disable_web_page_preview: false,
     }
   );
+
+  return {
+    response,
+    publication: {
+      messageKind: "text",
+      messageText: message,
+    },
+  };
 }
 
-async function markAndroidExpired(messageId) {
+async function markAndroidExpired(messageId, chatId) {
   const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
 
   return requestWithRetry(
     `${telegramBase}/deleteMessage`,
     {
-      chat_id: process.env.CHANNEL_ID,
+      chat_id: getPublishedChatId({ chatId }),
       message_id: messageId,
     }
   );
+}
+
+function isTelegramEditNotFound(status, errorText) {
+  if (status !== 400) {
+    return false;
+  }
+
+  const text = String(errorText || "").toLowerCase();
+  return text.includes("message to edit not found") || text.includes("message not found");
+}
+
+function isTelegramMessageNotModified(status, errorText) {
+  if (status !== 400) {
+    return false;
+  }
+
+  return /message is not modified/i.test(String(errorText || ""));
+}
+
+async function probeAndroidMessageExists(trackedEntry) {
+  const messageId = getPublishedMessageId(trackedEntry);
+  const messageKind =
+    trackedEntry && typeof trackedEntry === "object" && typeof trackedEntry.messageKind === "string"
+      ? trackedEntry.messageKind
+      : "";
+  const messageText =
+    trackedEntry && typeof trackedEntry === "object" && typeof trackedEntry.messageText === "string"
+      ? trackedEntry.messageText
+      : "";
+
+  if (!Number.isInteger(messageId) || !messageText || (messageKind !== "text" && messageKind !== "photo")) {
+    return { status: "skipped" };
+  }
+
+  const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+  const method = messageKind === "photo" ? "editMessageCaption" : "editMessageText";
+  const payload = {
+    chat_id: getPublishedChatId(trackedEntry),
+    message_id: messageId,
+    parse_mode: "Markdown",
+  };
+
+  if (messageKind === "photo") {
+    payload.caption = messageText;
+  } else {
+    payload.text = messageText;
+    payload.disable_web_page_preview = false;
+  }
+
+  try {
+    const response = await requestWithRetry(`${telegramBase}/${method}`, payload);
+    if (response.ok) {
+      return { status: "exists" };
+    }
+
+    const details = await readTelegramError(response);
+    if (isTelegramMessageNotModified(response.status, details.text)) {
+      return { status: "exists" };
+    }
+
+    if (isTelegramEditNotFound(response.status, details.text)) {
+      return { status: "missing" };
+    }
+
+    return { status: "error", reason: details.text };
+  } catch (err) {
+    return { status: "error", reason: err.message };
+  }
 }
 
 function readPositiveIntEnv(name, fallback) {
@@ -228,7 +383,8 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
       }
 
       try {
-        const telegramResponse = await sendAndroidPublication(item);
+        const sendResult = await sendAndroidPublication(item);
+        const telegramResponse = sendResult.response;
 
         if (!telegramResponse.ok) {
           const details = await readTelegramError(telegramResponse);
@@ -258,14 +414,31 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
 
         const payload = await telegramResponse.json().catch(() => ({}));
         const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
+        const publishedAt = Date.now();
 
-        publishedGames.push({ id, messageId, publishedAt: Date.now() });
+        publishedGames.push(
+          buildPublishedEntry(
+            item,
+            messageId,
+            publishedAt,
+            Number.isInteger(messageId)
+              ? PUBLICATION_STATUS.SENT_UNVERIFIED
+              : PUBLICATION_STATUS.PENDING_SEND
+          )
+        );
         if (Number.isInteger(messageId)) {
           await trackTelegramMessage(store, {
             id,
             messageId,
             platform: "android",
-            publishedAt: Date.now(),
+            chatId: process.env.CHANNEL_ID || null,
+            messageKind: sendResult.publication.messageKind,
+            messageText: sendResult.publication.messageText,
+            publishedAt,
+            title:
+              item && typeof item === "object" && typeof item.title === "string"
+                ? item.title
+                : null,
           });
         }
         publishedIds.add(id);
@@ -288,6 +461,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
 
       const found = publishedGames.find((entry) => getPublishedGameId(entry) === id);
       const messageId = getPublishedMessageId(found) ?? getPublishedMessageId(item);
+      const chatId = getPublishedChatId(found || item);
 
       if (messageId != null) {
         if (deleteAttempts >= maxDeletePerRun) {
@@ -300,7 +474,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
 
         deleteAttempts += 1;
         try {
-          const telegramResponse = await markAndroidExpired(messageId);
+          const telegramResponse = await markAndroidExpired(messageId, chatId);
           if (!telegramResponse.ok) {
             const details = await readTelegramError(telegramResponse);
             console.error(
@@ -378,8 +552,221 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   };
 }
 
+async function reconcileAndroidPublications(store, publishedGames = [], options = {}) {
+  const maxRepublishPerRun = Number.isInteger(options.maxRepublishPerRun)
+    ? options.maxRepublishPerRun
+    : readPositiveIntEnv("ANDROID_MAX_REPUBLISH_PER_RUN", 25);
+
+  const trackedSent = await readTrackedMessages(store);
+  const trackedMap = normalizeTrackedMap(trackedSent);
+  const maxExistenceChecks = Number.isInteger(options.maxExistenceChecks)
+    ? options.maxExistenceChecks
+    : readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 25);
+  const removedTrackedMessageIds = new Set();
+
+  let verifiedCount = 0;
+  let republishedCount = 0;
+  let republishErrors = 0;
+  let existenceChecks = 0;
+  let existenceMissing = 0;
+  let existenceErrors = 0;
+
+  for (let index = 0; index < publishedGames.length; index += 1) {
+    const entry = publishedGames[index];
+    const id = getPublishedGameId(entry);
+    if (!id) {
+      continue;
+    }
+
+    const currentMessageId = getPublishedMessageId(entry);
+    const titleMatch = normalizeTitleForMatch(
+      entry && typeof entry === "object"
+        ? entry.titleMatch || entry.title || id
+        : id
+    );
+    const trackedByMessage = Number.isInteger(currentMessageId)
+      ? trackedMap.byMessageId.get(currentMessageId)
+      : null;
+    const trackedById = trackedMap.byId.get(id) || null;
+    const trackedByTitle = titleMatch ? trackedMap.byTitle.get(titleMatch) || null : null;
+    const tracked = trackedByMessage || trackedById || trackedByTitle;
+
+    if (tracked) {
+      const trackedMessageId = getPublishedMessageId(tracked);
+      const trackedPublishedAt =
+        tracked && typeof tracked === "object" && Number.isInteger(tracked.publishedAt)
+          ? tracked.publishedAt
+          : Date.now();
+
+      if (existenceChecks < maxExistenceChecks) {
+        existenceChecks += 1;
+        const probe = await probeAndroidMessageExists(tracked);
+        if (probe.status === "missing") {
+          if (Number.isInteger(trackedMessageId)) {
+            removedTrackedMessageIds.add(trackedMessageId);
+          }
+
+          publishedGames[index] = buildPublishedEntry(
+            {
+              ...entry,
+              id,
+              title:
+                entry && typeof entry === "object" && typeof entry.title === "string"
+                  ? entry.title
+                  : tracked.title || id,
+            },
+            null,
+            trackedPublishedAt,
+            PUBLICATION_STATUS.PENDING_SEND
+          );
+          existenceMissing += 1;
+          continue;
+        }
+
+        if (probe.status === "error") {
+          existenceErrors += 1;
+        }
+      }
+
+      publishedGames[index] = buildPublishedEntry(
+        {
+          ...entry,
+          id,
+          title:
+            entry && typeof entry === "object" && typeof entry.title === "string"
+              ? entry.title
+              : tracked.title || id,
+        },
+        trackedMessageId,
+        trackedPublishedAt,
+        PUBLICATION_STATUS.SENT_VERIFIED
+      );
+      verifiedCount += 1;
+      continue;
+    }
+
+    publishedGames[index] = buildPublishedEntry(
+      { ...entry, id },
+      currentMessageId,
+      entry && typeof entry === "object" ? entry.publishedAt : null,
+      normalizePublicationStatus(
+        entry && typeof entry === "object" ? entry.status : null,
+        currentMessageId
+      )
+    );
+  }
+
+  const pendingToPublish = [];
+  for (const item of publishedGames) {
+    const id = getPublishedGameId(item);
+    if (!id) {
+      continue;
+    }
+
+    const status = normalizePublicationStatus(item.status, item.messageId);
+    if (status === PUBLICATION_STATUS.PENDING_SEND) {
+      pendingToPublish.push(item);
+    }
+  }
+
+  for (let index = 0; index < pendingToPublish.length; index += 1) {
+    if (republishedCount >= maxRepublishPerRun) {
+      break;
+    }
+
+    const item = pendingToPublish[index];
+    const id = getPublishedGameId(item);
+
+    try {
+      const sendResult = await sendAndroidPublication(item);
+      const telegramResponse = sendResult.response;
+      if (!telegramResponse.ok) {
+        const details = await readTelegramError(telegramResponse);
+        console.warn(
+          `[android-reconcile] No se pudo republicar ${id}: ${details.text}`
+        );
+        republishErrors += 1;
+        continue;
+      }
+
+      const payload = await telegramResponse.json().catch(() => ({}));
+      const messageId = payload && payload.result ? payload.result.message_id ?? null : null;
+      const publishedAt = Date.now();
+
+      const replaceIndex = publishedGames.findIndex(
+        (entry) => getPublishedGameId(entry) === id
+      );
+      if (replaceIndex >= 0) {
+        publishedGames[replaceIndex] = buildPublishedEntry(
+          item,
+          messageId,
+          publishedAt,
+          Number.isInteger(messageId)
+            ? PUBLICATION_STATUS.SENT_UNVERIFIED
+            : PUBLICATION_STATUS.PENDING_SEND
+        );
+      }
+
+      if (Number.isInteger(messageId)) {
+        await trackTelegramMessage(store, {
+          id,
+          messageId,
+          platform: "android",
+          chatId: process.env.CHANNEL_ID || null,
+          messageKind: sendResult.publication.messageKind,
+          messageText: sendResult.publication.messageText,
+          publishedAt,
+          title:
+            item && typeof item === "object" && typeof item.title === "string"
+              ? item.title
+              : null,
+        });
+      }
+
+      republishedCount += 1;
+    } catch (err) {
+      console.warn(
+        `[android-reconcile] Error de red republicando ${id}: ${err.message}`
+      );
+      republishErrors += 1;
+    }
+  }
+
+  if (removedTrackedMessageIds.size > 0) {
+    const latestTracked = await readTrackedMessages(store);
+    const nextTracked = latestTracked.filter((entry) => {
+      const messageId = getPublishedMessageId(entry);
+      return !Number.isInteger(messageId) || !removedTrackedMessageIds.has(messageId);
+    });
+    await saveTrackedMessages(store, nextTracked);
+  }
+
+  console.log(
+    `[metrics] ${JSON.stringify({
+      source: "android-reconcile",
+      verified_existing: verifiedCount,
+      republished_missing: republishedCount,
+      republish_errors: republishErrors,
+      existence_checks: existenceChecks,
+      existence_missing: existenceMissing,
+      existence_errors: existenceErrors,
+    })}`
+  );
+
+  return {
+    verifiedCount,
+    republishedCount,
+    republishErrors,
+    existenceChecks,
+    existenceMissing,
+    existenceErrors,
+    totalPublishedTracked: publishedGames.length,
+  };
+}
+
 module.exports = {
   checkAndroidDeals,
+  reconcileAndroidPublications,
   buildAndroidMessage,
   escapeTelegramMarkdownText,
 };

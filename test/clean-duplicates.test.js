@@ -3,8 +3,11 @@
 const assert = require("node:assert");
 const { test } = require("node:test");
 const {
+  buildDuplicateClusters,
   groupMessagesByGameId,
+  groupMessagesByGameName,
   findDuplicates,
+  readGenericNameTokensFromEnv,
   sortByAge,
   getMessagesToDelete,
   cleanDuplicates,
@@ -78,6 +81,78 @@ test("clean-duplicates: cleanDuplicates trata not found como resuelto", async ()
   }
 });
 
+test("clean-duplicates: cleanDuplicates elimina duplicado por mismo nombre y mantiene el mas reciente", async () => {
+  try {
+    global.fetch = async (url) => {
+      if (url.includes("deleteMessage")) {
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }
+
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    };
+
+    const published = [
+      {
+        id: "com.game.old",
+        platform: "android",
+        title: "Legend Heroes",
+        messageId: 900,
+        publishedAt: 1000,
+      },
+      {
+        id: "com.game.new",
+        platform: "android",
+        title: "legend heroes",
+        messageId: 901,
+        publishedAt: 2000,
+      },
+    ];
+
+    const result = await cleanDuplicates(published);
+
+    assert.strictEqual(result.messagesDeleted, 1);
+    assert.strictEqual(result.errors.length, 0);
+    assert.strictEqual(published.length, 1);
+    assert.strictEqual(published[0].messageId, 901);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("clean-duplicates: usa chatId rastreado al eliminar", async () => {
+  try {
+    const fetchCalls = [];
+    global.fetch = async (_url, opts) => {
+      fetchCalls.push(JSON.parse(opts.body || "{}"));
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    };
+
+    const published = [
+      {
+        id: "game-chat",
+        messageId: 300,
+        publishedAt: 1000,
+        chatId: "@trackedchat",
+      },
+      {
+        id: "game-chat",
+        messageId: 301,
+        publishedAt: 2000,
+        chatId: "@trackedchat",
+      },
+    ];
+
+    const result = await cleanDuplicates(published);
+
+    assert.strictEqual(result.messagesDeleted, 1);
+    assert.strictEqual(fetchCalls.length, 1);
+    assert.strictEqual(fetchCalls[0].chat_id, "@trackedchat");
+    assert.strictEqual(fetchCalls[0].message_id, 300);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("clean-duplicates: groupMessagesByGameId agrupa correctamente", () => {
   const games = [
     { id: "game1", messageId: 100, publishedAt: 1000 },
@@ -107,6 +182,131 @@ test("clean-duplicates: groupMessagesByGameId ignora entradas inválidas", () =>
   assert.strictEqual(Object.keys(grouped).length, 2);
   assert.strictEqual(grouped.game1.length, 1);
   assert.strictEqual(grouped.game2.length, 1);
+});
+
+test("clean-duplicates: groupMessagesByGameName agrupa por nombre normalizado", () => {
+  const games = [
+    { id: "com.a", platform: "android", title: "Space Hero", messageId: 10 },
+    { id: "com.b", platform: "android", title: "space   hero", messageId: 11 },
+    { id: "com.c", platform: "android", title: "Other", messageId: 12 },
+  ];
+
+  const grouped = groupMessagesByGameName(games);
+
+  // "Other" se ignora por ser titulo de una sola palabra (guardia anti-falsos positivos).
+  assert.strictEqual(Object.keys(grouped).length, 1);
+  assert.strictEqual(grouped["android:space hero"].length, 2);
+  assert.strictEqual(grouped["android:other"], undefined);
+});
+
+test("clean-duplicates: buildDuplicateClusters detecta duplicados por nombre aunque el id sea distinto", () => {
+  const games = [
+    {
+      id: "com.a",
+      platform: "android",
+      title: "Space Hero",
+      messageId: 10,
+      publishedAt: 1000,
+    },
+    {
+      id: "com.b",
+      platform: "android",
+      title: "space hero",
+      messageId: 11,
+      publishedAt: 2000,
+    },
+    {
+      id: "com.c",
+      platform: "android",
+      title: "Other Game",
+      messageId: 12,
+      publishedAt: 3000,
+    },
+  ];
+
+  const clusters = buildDuplicateClusters(games);
+
+  assert.strictEqual(clusters.length, 1);
+  assert.strictEqual(clusters[0].length, 2);
+  assert.strictEqual(clusters[0].some((x) => x.messageId === 10), true);
+  assert.strictEqual(clusters[0].some((x) => x.messageId === 11), true);
+});
+
+test("clean-duplicates: buildDuplicateClusters no une por nombre entre plataformas distintas", () => {
+  const games = [
+    {
+      id: "android.app.one",
+      platform: "android",
+      title: "Same Name Game",
+      messageId: 1001,
+      publishedAt: 1000,
+    },
+    {
+      id: "pc.giveaway.one",
+      platform: "pc",
+      title: "Same Name Game",
+      messageId: 1002,
+      publishedAt: 2000,
+    },
+  ];
+
+  const clusters = buildDuplicateClusters(games);
+
+  assert.strictEqual(clusters.length, 0);
+});
+
+test("clean-duplicates: groupMessagesByGameName ignora nombres genericos", () => {
+  const games = [
+    { id: "com.x", platform: "android", title: "Premium Game", messageId: 21 },
+    { id: "com.y", platform: "android", title: "premium game", messageId: 22 },
+  ];
+
+  const grouped = groupMessagesByGameName(games);
+
+  assert.strictEqual(Object.keys(grouped).length, 0);
+});
+
+test("clean-duplicates: buildDuplicateClusters no une por nombre cuando el titulo es generico", () => {
+  const games = [
+    {
+      id: "android.id.one",
+      platform: "android",
+      title: "Premium Game",
+      messageId: 1101,
+      publishedAt: 1000,
+    },
+    {
+      id: "android.id.two",
+      platform: "android",
+      title: "premium game",
+      messageId: 1102,
+      publishedAt: 2000,
+    },
+  ];
+
+  const clusters = buildDuplicateClusters(games);
+
+  assert.strictEqual(clusters.length, 0);
+});
+
+test("clean-duplicates: readGenericNameTokensFromEnv usa defaults cuando env vacio", () => {
+  const tokens = readGenericNameTokensFromEnv({
+    CLEAN_DUPLICATES_GENERIC_TOKENS: "",
+  });
+
+  assert.strictEqual(tokens.has("premium"), true);
+  assert.strictEqual(tokens.has("game"), true);
+});
+
+test("clean-duplicates: readGenericNameTokensFromEnv permite override por variable", () => {
+  const tokens = readGenericNameTokensFromEnv({
+    CLEAN_DUPLICATES_GENERIC_TOKENS: "bundle, pack, starter",
+  });
+
+  assert.strictEqual(tokens.has("bundle"), true);
+  assert.strictEqual(tokens.has("pack"), true);
+  assert.strictEqual(tokens.has("starter"), true);
+  assert.strictEqual(tokens.has("premium"), false);
 });
 
 test("clean-duplicates: findDuplicates solo retorna juegos duplicados", () => {

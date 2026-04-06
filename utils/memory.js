@@ -12,9 +12,54 @@ const MEMORY_LIMITS = {
   android: 300,
 };
 
+const PUBLICATION_STATUS = {
+  PENDING_SEND: "pending_send",
+  SENT_UNVERIFIED: "sent_unverified",
+  SENT_VERIFIED: "sent_verified",
+};
+
+function normalizeTitleForMatch(value) {
+  const base = String(value ?? "").trim().toLowerCase();
+  if (!base) {
+    return "";
+  }
+
+  return base
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizePublicationStatus(status, messageId) {
+  const raw = String(status ?? "").trim().toLowerCase();
+  if (raw === PUBLICATION_STATUS.SENT_VERIFIED) {
+    return PUBLICATION_STATUS.SENT_VERIFIED;
+  }
+
+  if (raw === PUBLICATION_STATUS.SENT_UNVERIFIED) {
+    return PUBLICATION_STATUS.SENT_UNVERIFIED;
+  }
+
+  if (raw === PUBLICATION_STATUS.PENDING_SEND) {
+    return PUBLICATION_STATUS.PENDING_SEND;
+  }
+
+  return Number.isInteger(messageId)
+    ? PUBLICATION_STATUS.SENT_UNVERIFIED
+    : PUBLICATION_STATUS.PENDING_SEND;
+}
+
 function normalizeMemoryEntry(entry) {
   if (typeof entry === "string" && entry.trim()) {
-    return { id: entry.trim(), messageId: null, publishedAt: null };
+    const id = entry.trim();
+    return {
+      id,
+      messageId: null,
+      publishedAt: null,
+      status: PUBLICATION_STATUS.PENDING_SEND,
+      title: null,
+      titleMatch: normalizeTitleForMatch(id),
+    };
   }
 
   if (!entry || typeof entry !== "object") {
@@ -46,7 +91,23 @@ function normalizeMemoryEntry(entry) {
       ? Number(rawPublishedAt)
       : null;
 
-  return { id, messageId, publishedAt };
+  const title =
+    typeof entry.title === "string" && entry.title.trim()
+      ? entry.title.trim()
+      : null;
+
+  const status = normalizePublicationStatus(entry.status, messageId);
+
+  const titleMatch = normalizeTitleForMatch(title || id);
+
+  return {
+    id,
+    messageId,
+    publishedAt,
+    status,
+    title,
+    titleMatch,
+  };
 }
 
 function normalizePublishedGames(rawData) {
@@ -114,6 +175,9 @@ async function savePublishedGamesList(store, publishedGames, platform = "android
 
 // Exportamos para que los servicios y los tests puedan usarlas
 module.exports = {
+  PUBLICATION_STATUS,
+  normalizePublicationStatus,
+  normalizeTitleForMatch,
   normalizePublishedGames,
   getPublishedGamesList,
   savePublishedGamesList
