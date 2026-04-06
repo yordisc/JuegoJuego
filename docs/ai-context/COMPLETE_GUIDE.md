@@ -1,6 +1,6 @@
 # 🤖 Guía Completa para IAs - Contexto Técnico del Proyecto
 
->  **Propósito**: Este documento contiene TODO lo que una IA necesita saber para trabajar efectivamente con este proyecto. Úsalo como contexto al trabajar con Claude, GPT, o cualquier otra IA.
+> **Propósito**: Este documento contiene TODO lo que una IA necesita saber para trabajar efectivamente con este proyecto. Úsalo como contexto al trabajar con Claude, GPT, o cualquier otra IA.
 
 ---
 
@@ -9,10 +9,12 @@
 **Tipo**: Agregador de juegos gratis + Bot de Telegram  
 **Arquitectura**: Productor-Consumidor Serverless  
 **Stack**: Node.js + Netlify Functions + GitHub Actions  
-**Costo**: $0/mes (free tier)  
+**Costo**: $0/mes (free tier)
 
 ### Objetivo de Negocio
+
 Monitorear constantemente:
+
 - Android: Google Play (juegos 100% gratis) + Reddit RSS
 - PC: GamerPower API (juegos gratis)
 
@@ -125,7 +127,9 @@ Expirar / eliminar cuando dejen de estar gratis.
 ## 📚 Referencias de Servicios
 
 ### `services/android-deals.js`
+
 **Funciones clave**:
+
 - `checkAndroidDeals(store, publishedGames, options)` - Procesa cola y expirados
 - `reconcileAndroidPublications(store, publishedGames, options)` - Verifica y republica
 - `buildAndroidMessage(item)` - Formatea mensaje Markdown para Telegram
@@ -133,51 +137,65 @@ Expirar / eliminar cuando dejen de estar gratis.
 - `probeAndroidMessageExists(trackedEntry)` - Verifica existencia en Telegram
 
 **Estados de publicación**:
+
 ```javascript
 PUBLICATION_STATUS = {
-  PENDING_SEND: "pending_send",        // Aún no enviado
-  SENT_UNVERIFIED: "sent_unverified",  // Enviado, sin confirmar en Telegram
-  SENT_VERIFIED: "sent_verified"       // Confirmado en Telegram
-}
+  PENDING_SEND: "pending_send", // Aún no enviado
+  SENT_UNVERIFIED: "sent_unverified", // Enviado, sin confirmar en Telegram
+  SENT_VERIFIED: "sent_verified", // Confirmado en Telegram
+};
 ```
 
 ### `services/android-rss.js`
+
 **Funciones clave**:
+
 - `buildAndroidRssQueue(store)` - Produce cola desde Reddit RSS
 - `inferExpiredAndroidFromFeed(publishedGames, feedActiveIds)` - Detecta expirados
 
 **Protecciones**:
+
 - `minActiveIds >= 10` - No expira si RSS tiene pocos items (protección contra fallos)
 - `graceHours = 24` - Espera 24h antes de marcar expirado (cambios transitorios)
 - `maxExpireRatio = 0.35` - No expira > 35% en una corrida (previene purgas masivas)
 
 ### `services/android-expiration.js`
+
 **Verifica directamente en Google Play si siguen gratis**
+
 - Compara con published_games_android
 - Si no está gratis → agrega a android_expired
 - Alternativa a RSS para detección de expiración
 
 ### `utils/memory.js`
+
 **Abstracción de Netlify Blobs**:
+
 - `getPublishedGamesList(store, platform)` - Lee desde Blobs
 - `savePublishedGamesList(store, games, platform)` - Guarda en Blobs con normalización
 - Límite: 300 items max para Android (FIFO)
 
 ### `utils/telegram.js`
+
 **Wrapper de Telegram Bot API**:
+
 - `requestWithRetry(url, payload, options)` - Reintentos exponenciales
 - Detecta 429 (rate limit) y detiene
 - Reintentos en 5xx y fallos de red
 
 ### `utils/blob-lock.js`
+
 **Sistema de locks distribuido**:
+
 - `withBlobLock(store, options, handler)` - Adquiere lock, ejecuta handler, libera
 - TTL: 5 segundos (respeta timeout de Netlify 10s)
 - Retries: 5 intentos con 500ms entre intentos
 - Owner: identifica quién tiene el lock
 
 ### `services/manual-maintenance.js`
+
 **Funciones administrativas**:
+
 - `readTrackedMessages(store)` - Lee historial de mensajes enviados
 - `trackTelegramMessage(store, entry)` - Registra nuevo envío
 - `deleteTrackedTelegramMessages(store)` - Borra mensajes y sincroniza
@@ -188,18 +206,21 @@ PUBLICATION_STATUS = {
 ## 🔑 Variables de Entorno Críticas
 
 ### Netlify Blobs (almacenamiento)
+
 ```bash
 NETLIFY_SITE_ID=<your-site-id>         # ID único del site Netlify
 NETLIFY_API_TOKEN=<your-api-token>     # Token de acceso (PAT de Netlify)
 ```
 
 ### Telegram
+
 ```bash
 TELEGRAM_TOKEN=<your-bot-token>        # Token del bot (@BotFather)
 CHANNEL_ID=@your_channel_id            # Canal de destino (@nombre)
 ```
 
 ### Tuning de Rendimiento
+
 ```bash
 ANDROID_MAX_PUBLISH_PER_RUN=18              # Max items a publicar por run
 ANDROID_MAX_DELETE_PER_RUN=18               # Max items a expirar por run
@@ -211,6 +232,7 @@ ANDROID_STATE_LOCK_RETRY_DELAY_MS=500       # Espera entre reintentos
 ```
 
 ### RSS Específicas (Android)
+
 ```bash
 ANDROID_RSS_MIN_ACTIVE_IDS=10               # Min IDs en feed para permitir expiración
 ANDROID_RSS_EXPIRATION_GRACE_HOURS=24       # Espera antes de marcar expirado
@@ -224,16 +246,17 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 ## 🧪 Estructura de Datos
 
 ### `published_games_android` (Netlify Blobs)
+
 ```json
 [
   {
-    "id": "com.example.game",           // ID único del juego
-    "messageId": 123456789,              // ID del mensaje en Telegram (null si no enviado)
-    "publishedAt": 1710000000000,        // Timestamp de publicación
-    "status": "sent_verified",           // pending_send | sent_unverified | sent_verified
-    "title": "Game Name",                // Título del juego
-    "titleMatch": "game name",           // Título normalizado (para búsqueda)
-    "chatId": "@channel_id"              // Canal donde se publicó (para recuperación)
+    "id": "com.example.game", // ID único del juego
+    "messageId": 123456789, // ID del mensaje en Telegram (null si no enviado)
+    "publishedAt": 1710000000000, // Timestamp de publicación
+    "status": "sent_verified", // pending_send | sent_unverified | sent_verified
+    "title": "Game Name", // Título del juego
+    "titleMatch": "game name", // Título normalizado (para búsqueda)
+    "chatId": "@channel_id" // Canal donde se publicó (para recuperación)
   }
 ]
 // Límite: 300 items (FIFO)
@@ -241,16 +264,17 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 ```
 
 ### `android_queue` (Netlify Blobs)
+
 ```json
 [
   {
     "id": "com.new.game",
     "title": "New Game",
-    "icon": "https://...",               // URL de icono (opcional)
+    "icon": "https://...", // URL de icono (opcional)
     "url": "https://play.google.com/...", // Link a Play Store
-    "score": 4.5,                        // Rating
-    "source": "reddit-rss",               // Fuente (reddit-rss, google-play, etc.)
-    "discoveredAt": 1710000000000        // Cuándo se descubrió
+    "score": 4.5, // Rating
+    "source": "reddit-rss", // Fuente (reddit-rss, google-play, etc.)
+    "discoveredAt": 1710000000000 // Cuándo se descubrió
   }
 ]
 // Límite: Ninguno en queue, pero check-android procesa max 18/run
@@ -258,6 +282,7 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 ```
 
 ### `telegram_sent_messages` (Netlify Blobs)
+
 ```json
 [
   {
@@ -285,12 +310,14 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 **Puntos donde ocurre deduplicación**:
 
 1. **En RSS producer** (`github-android-rss.js`):
+
    ```javascript
    // Elimina duplicados en la ACTUAL ejecución
    const queue = dedupeById(readJsonArray(store, KEY_ANDROID_QUEUE));
    ```
 
 2. **En consumidor** (`check-android.js`):
+
    ```javascript
    if (publishedIds.has(id)) continue; // Ya publicado anteriormente
    ```
@@ -302,6 +329,7 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
    ```
 
 **Protección de deduplicación por nombre**:
+
 - Si `com.game` se publica como "Game Title"
 - Y después llega como "GAME TITLE" (mayúsculas)
 - Se normaliza: `normalizeTitleForMatch()` → "game title"
@@ -314,6 +342,7 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 ### 2. Reintentos y Recuperación
 
 **Escenario: Falla envío a Telegram**
+
 ```
 1. check-android intenta enviar 18 items
 2. Item 5 falla (HTTP 500 de Telegram)
@@ -324,6 +353,7 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 ```
 
 **Escenario: Falla verificación**
+
 ```
 1. verify-android intenta verificar 50 items
 2. Item 25 no existe en Telegram (falla)
@@ -338,22 +368,29 @@ ANDROID_RSS_LANG=es                         # Idioma para Google Play
 ## 🔒 Seguridad y Concurrencia
 
 ### Locks Distribuidos
+
 **Problema**: GitHub Actions puede llamar `github-android-rss.js` MIENTRAS Netlify Functions llama `check-android.js`
 
 **Solución**: Lock distribuido en Netlify Blobs
+
 ```javascript
-withBlobLock(store, {
-  lockKey: "android_state_lock",      // Llave compartida
-  owner: "consumer-android",           // Identidad del dueño
-  ttlMs: 5000,                         // Auto-libera en 5 segundos
-  retries: 5,                          // 5 intentos
-  retryDelayMs: 500                    // 500ms entre intentos
-}, async () => {
-  // Solo una corrida accede aquí a la vez
-})
+withBlobLock(
+  store,
+  {
+    lockKey: "android_state_lock", // Llave compartida
+    owner: "consumer-android", // Identidad del dueño
+    ttlMs: 5000, // Auto-libera en 5 segundos
+    retries: 5, // 5 intentos
+    retryDelayMs: 500, // 500ms entre intentos
+  },
+  async () => {
+    // Solo una corrida accede aquí a la vez
+  },
+);
 ```
 
 **Garantías**:
+
 - Máximo 2.5 segundos esperando (5 retries × 500ms)
 - Total: < 10 segundos (respeta timeout de Netlify)
 - TTL asegura que nunca un lock queda atrapado
@@ -363,20 +400,22 @@ withBlobLock(store, {
 ## 📉 Métricas Clave
 
 Cada ejecución registra:
+
 ```json
 {
   "source": "consumer-android",
-  "items_published": 15,           // éxitos
-  "items_expired": 2,              // borrados
-  "publish_errors": 1,             // fallos en publish
-  "delete_errors": 0,              // fallos en delete
-  "verified_count": 48,            // verificados (diario)
-  "republished_count": 2,          // republicados
-  "existence_errors": 0            // errores en verificación
+  "items_published": 15, // éxitos
+  "items_expired": 2, // borrados
+  "publish_errors": 1, // fallos en publish
+  "delete_errors": 0, // fallos en delete
+  "verified_count": 48, // verificados (diario)
+  "republished_count": 2, // republicados
+  "existence_errors": 0 // errores en verificación
 }
 ```
 
 **Salud del sistema**:
+
 - `publish_errors` < `items_published / 10` → ✅ Saludable
 - `publish_errors` > `items_published` → ❌ Crítico
 - `verified_count` ~50 → ✅ Cubriendo bien
@@ -389,9 +428,10 @@ Cada ejecución registra:
 **Ejemplo: Agregar fuente nueva "Steam Free"**
 
 1. **Crear productor** (`scripts/github-steam.js`):
+
    ```javascript
    const { withBlobLock } = require('../utils/blob-lock');
-   
+
    async function produceSteamDeals() {
      const store = getStoreFromEnv();
      return withBlobLock(store, {...}, async () => {
@@ -405,22 +445,23 @@ Cada ejecución registra:
    ```
 
 2. **Crear consumidor** (`netlify/functions/check-steam.js`):
+
    ```javascript
-   const { checkSteamDeals } = require('../../services/steam-deals.js');
-   
+   const { checkSteamDeals } = require("../../services/steam-deals.js");
+
    exports.handler = async () => {
      const store = createBlobStoreFromEnv();
-     const publishedGames = await getPublishedGamesList(store, 'steam');
+     const publishedGames = await getPublishedGamesList(store, "steam");
      await checkSteamDeals(store, publishedGames);
-     await savePublishedGamesList(store, publishedGames, 'steam');
+     await savePublishedGamesList(store, publishedGames, "steam");
    };
    ```
 
 3. **Crear servicio** (`services/steam-deals.js`):
-   ***Sigue patrón de `android-deals.js` pero para Steam***
+   **_Sigue patrón de `android-deals.js` pero para Steam_**
 
 4. **Crear tests** (`test/steam-deals.test.js`):
-   ***Mock de scraper de Steam, valida lógica***
+   **_Mock de scraper de Steam, valida lógica_**
 
 5. **Agregar al schedule** (`netlify.toml`):
    ```toml
@@ -435,30 +476,32 @@ Cada ejecución registra:
 **Filosofía**: 100% offline, con mocks avanzados
 
 **Ejemplo de test**:
+
 ```javascript
 test("Publica nuevos items de android_queue", async (t) => {
   const store = createStore({
     android_queue: [{ id: "com.new", title: "New" }],
   });
-  
+
   global.fetch = async (url) => {
     if (url.includes("sendMessage")) {
       return {
         ok: true,
-        json: async () => ({ ok: true, result: { message_id: 111 } })
+        json: async () => ({ ok: true, result: { message_id: 111 } }),
       };
     }
   };
-  
+
   const publishedGames = [];
   const result = await checkAndroidDeals(store, publishedGames);
-  
+
   assert.strictEqual(result.publishedCount, 1);
   assert.strictEqual(publishedGames[0].id, "com.new");
 });
 ```
 
 **Ejecutar tests**:
+
 ```bash
 npm test                          # Todos
 npm test -- --testNamePattern="android"  # Solo Android
@@ -470,17 +513,20 @@ npm test -- --testNamePattern="lock"     # Solo locks
 ## 🐛 Debugging Común
 
 ### "¿Por qué no se publica?"
+
 1. Revisa `android_queue` en Blobs: `npm run blobs:show`
 2. Revisa logs de `check-android`: busca `[metrics]`
 3. Si `publish_errors > 0`: revisá error de Telegram
 4. Si `items_published = 0`: puede ser duplicado o error de lock
 
 ### "¿Por qué aparecen duplicados?"
+
 1. Ejecuta: `npm run blobs:clear-queues` y reintenta
 2. Si persiste: ejecuta `npm run blobs:normalize-memory`
 3. Si sigue: hay item que se está re-produci (gap en deduplicación)
 
 ### "¿Por qué lock timeout?"
+
 1. Una ejecución anterior sigue corriendo
 2. Revisa: `ANDROID_STATE_LOCK_TTL_MS` (debe ser `5000`)
 3. Revisa logs de Netlify para ver cuánto tarda cada función
@@ -490,24 +536,27 @@ npm test -- --testNamePattern="lock"     # Solo locks
 ## 📞 PatrÓnes y Convenciones
 
 ### Nombres de Variables
+
 - `KEY_*`: Constante de clave en Blobs (ej: `KEY_ANDROID_QUEUE`)
 - `store`: Interfaz de Netlify Blobs
 - `published*`: Datos ya publicados
 - `*Queue`: Cola pendiente de procesar
 
 ### Funciones Principales
+
 - `check*Deals()`: Procesa cola y publica
 - `reconcile*Publications()`: Verifica y republica
 - `*FromFeed()`: Extrae de fuente externa
 - `build*Message()`: Formatea para Telegram
 
 ### Estados
+
 ```javascript
 PUBLICATION_STATUS = {
-  PENDING_SEND,      // Prioritario para envío
-  SENT_UNVERIFIED,   // Espera confirmación
-  SENT_VERIFIED      // Confirmado ✅
-}
+  PENDING_SEND, // Prioritario para envío
+  SENT_UNVERIFIED, // Espera confirmación
+  SENT_VERIFIED, // Confirmado ✅
+};
 ```
 
 ---

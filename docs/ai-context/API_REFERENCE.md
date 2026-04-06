@@ -9,9 +9,11 @@
 ### `services/android-deals.js`
 
 #### `checkAndroidDeals(store, publishedGames, options?)`
+
 **Propósito**: Procesa items de `android_queue` y los publica en Telegram
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,           // Interfaz de Netlify Blobs
@@ -27,6 +29,7 @@
 ```
 
 **Retorna:**
+
 ```javascript
 {
   status: "success" | "error" | "partial",
@@ -41,14 +44,17 @@
 ```
 
 **Ejemplo**:
+
 ```javascript
-const {checkAndroidDeals} = require('./services/android-deals');
+const { checkAndroidDeals } = require("./services/android-deals");
 const result = await checkAndroidDeals(store, myPublishedGames, {
   maxPublishPerRun: 18,
-  maxDeletePerRun: 18
+  maxDeletePerRun: 18,
 });
-console.log(`Publicados: ${result.publishedCount}, Expirados: ${result.expiredCount}`);
-if (result.status === 'error') throw new Error(result.error);
+console.log(
+  `Publicados: ${result.publishedCount}, Expirados: ${result.expiredCount}`,
+);
+if (result.status === "error") throw new Error(result.error);
 ```
 
 **Llamado desde**: `netlify/functions/check-android.js`
@@ -56,9 +62,11 @@ if (result.status === 'error') throw new Error(result.error);
 ---
 
 #### `reconcileAndroidPublications(store, publishedGames, options?)`
+
 **Propósito**: Verifica que mensajes publicados sigan existiendo en Telegram, republica fallidas
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,
@@ -73,6 +81,7 @@ if (result.status === 'error') throw new Error(result.error);
 ```
 
 **Retorna:**
+
 ```javascript
 {
   status: "success" | "error",
@@ -85,10 +94,12 @@ if (result.status === 'error') throw new Error(result.error);
 ```
 
 **Estados después**:
+
 - `sent_verified` → Se confirma que Telegram tiene el mensaje
 - `pending_send` → Se marcó para reintento (generalmente porque falta messageId)
 
 **Ejemplo**:
+
 ```javascript
 const result = await reconcileAndroidPublications(store, myPublished);
 console.log(`Verificados: ${result.verifiedCount}`);
@@ -102,9 +113,11 @@ if (result.republishedCount > 0) {
 ---
 
 #### `sendAndroidPublication(item, options?)`
+
 **Propósito**: Envía UN item a Telegram, con reintentos exponenciales
 
 **Parámetros:**
+
 ```javascript
 {
   id: "com.example.game",
@@ -122,6 +135,7 @@ if (result.republishedCount > 0) {
 ```
 
 **Retorna:**
+
 ```javascript
 {
   success: true | false,
@@ -132,11 +146,12 @@ if (result.republishedCount > 0) {
 ```
 
 **Ejemplo**:
+
 ```javascript
 const gameItem = {
   id: "com.game.example",
   title: "Game",
-  url: "https://play.google.com/store/apps/details?id=com.game.example"
+  url: "https://play.google.com/store/apps/details?id=com.game.example",
 };
 
 const result = await sendAndroidPublication(gameItem);
@@ -150,9 +165,11 @@ if (result.success) {
 ---
 
 #### `probeAndroidMessageExists(trackedMessage, options?)`
+
 **Propósito**: Verifica que un mensaje aún existe en Telegram (sin modificarlo)
 
 **Parámetros:**
+
 ```javascript
 {
   id: "com.game1",
@@ -167,6 +184,7 @@ if (result.success) {
 ```
 
 **Retorna:**
+
 ```javascript
 {
   exists: true | false,
@@ -178,11 +196,12 @@ if (result.success) {
 **Cómo funciona**: Intenta editMessage con el MISMO texto (no cambia nada) → Si Telegram retorna OK, el mensaje existe → Si retorna 400, el mensaje no existe.
 
 **Ejemplo**:
+
 ```javascript
 const tracked = {
   messageId: 123456,
   chatId: "@channel_id",
-  messageText: "Original"
+  messageText: "Original",
 };
 
 const probe = await probeAndroidMessageExists(tracked);
@@ -196,9 +215,11 @@ if (!probe.exists) {
 ### `services/android-rss.js`
 
 #### `buildAndroidRssQueue(store, options?)`
+
 **Propósito**: Lee Reddit RSS, valida que sean juegos gratis, actualiza `android_queue`
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,
@@ -214,6 +235,7 @@ if (!probe.exists) {
 ```
 
 **Retorna:**
+
 ```javascript
 {
   status: "success" | "error",
@@ -227,16 +249,20 @@ if (!probe.exists) {
 ```
 
 **Validaciones aplicadas**:
-1. ✅ `isGameCategory()` - Categoría es GAME_* (no APP)
+
+1. ✅ `isGameCategory()` - Categoría es GAME\_\* (no APP)
 2. ✅ `isCurrentlyFree()` - Precio = 0
 3. ✅ `originalPrice > 0` - Tenía precio normalmente (para mostrar descuento)
 4. ✅ `!isDuplicate()` - No está en queue ni publicado
 5. ✅ `!isBlacklisted()` - No está en lista negra manual
 
 **Ejemplo**:
+
 ```javascript
 const result = await buildAndroidRssQueue(store);
-console.log(`Items validados: ${result.itemsValidated}, nuevos: ${result.itemsAdded}`);
+console.log(
+  `Items validados: ${result.itemsValidated}, nuevos: ${result.itemsAdded}`,
+);
 return result;
 ```
 
@@ -245,9 +271,11 @@ return result;
 ---
 
 #### `inferExpiredAndroidFromFeed(publishedGames, feedActiveIds, options?)`
+
 **Propósito**: Compara juegos publicados con IDs activos en RSS, marca expirados
 
 **Parámetros:**
+
 ```javascript
 {
   publishedGames: Array,      // Lista de juegos ya publicados
@@ -262,6 +290,7 @@ return result;
 ```
 
 **Retorna:**
+
 ```javascript
 {
   expiredIds: ["com.game1", "com.game2"],
@@ -273,16 +302,18 @@ return result;
 ```
 
 **Protecciones**:
+
 - Si RSS tiene < 10 IDs → no expira nada (puede que RSS esté down)
 - Si > 35% items a expirar → limita a 35% (protección contra purgas)
 - Si < 24h desde publicación → no expira (cambios transitorios)
 
 **Ejemplo**:
+
 ```javascript
-const feedIds = new Set(rssItems.map(i => i.id));
+const feedIds = new Set(rssItems.map((i) => i.id));
 const expired = inferExpiredAndroidFromFeed(published, feedIds, {
-  minActiveIds: 20,           // Más estricto
-  maxExpireRatio: 0.2         // Solo 20% máx
+  minActiveIds: 20, // Más estricto
+  maxExpireRatio: 0.2, // Solo 20% máx
 });
 console.log(`A expirar: ${expired.expiredCount}`);
 ```
@@ -292,9 +323,11 @@ console.log(`A expirar: ${expired.expiredCount}`);
 ### `services/android-expiration.js`
 
 #### `checkAndroidExpirationDirectly(store, options?)`
+
 **Propósito**: Consulta Google Play directamente para verificar si siguen gratis (alternativa a RSS)
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,
@@ -307,6 +340,7 @@ console.log(`A expirar: ${expired.expiredCount}`);
 ```
 
 **Retorna:**
+
 ```javascript
 {
   checkedCount: 25,
@@ -324,11 +358,13 @@ console.log(`A expirar: ${expired.expiredCount}`);
 ### `utils/blob-lock.js`
 
 #### `withBlobLock(store, options, handler)`
+
 **Propósito**: Adquiere un lock distribuido, ejecuta handler, libera el lock
 
 **CRÍTICO**: Esta es la función más importante para prevenir race conditions
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,
@@ -350,11 +386,13 @@ console.log(`A expirar: ${expired.expiredCount}`);
 **Retorna**: Lo que devuelva `handler`
 
 **Garantías**:
+
 - ✅ Atomicity: Solo una corrida ejecuta handler a la vez
 - ✅ No deadlock: TTL de 5s previene locks atrapados
 - ✅ Rápido: Máximo 2.5s esperando (5 retries × 500ms)
 
 **Ejemplo**:
+
 ```javascript
 const result = await withBlobLock(store, {
   lockKey: "android_state_lock",
@@ -372,6 +410,7 @@ const result = await withBlobLock(store, {
 ```
 
 **⚠️ CAMBIO CRÍTICO (v1.1.0)**:
+
 - Antes: ttlMs=90000, retries=20, retryDelayMs=1000
 - Ahora: ttlMs=5000, retries=5, retryDelayMs=500
 - Razón: Netlify timeout es 10s, el anterior era muy conservador
@@ -381,9 +420,11 @@ const result = await withBlobLock(store, {
 ### `utils/memory.js`
 
 #### `getPublishedGamesList(store, platform, options?)`
+
 **Propósito**: Lee lista de juegos publicados desde Blobs
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,
@@ -396,6 +437,7 @@ const result = await withBlobLock(store, {
 ```
 
 **Retorna**:
+
 ```javascript
 [
   {
@@ -405,24 +447,27 @@ const result = await withBlobLock(store, {
     status: "sent_verified",
     title: "Game",
     titleMatch: "game",
-    chatId: "@channel"
+    chatId: "@channel",
   },
   // ... más items
-]
+];
 ```
 
 **Ejemplo**:
+
 ```javascript
-const published = await getPublishedGamesList(store, 'android');
+const published = await getPublishedGamesList(store, "android");
 console.log(`Total publicados: ${published.length}`);
 ```
 
 ---
 
 #### `savePublishedGamesList(store, games, platform, options?)`
+
 **Propósito**: Guarda lista en Blobs, con limit FIFO a 300 items
 
 **Parámetros:**
+
 ```javascript
 {
   store: BlobStore,
@@ -436,14 +481,16 @@ console.log(`Total publicados: ${published.length}`);
 ```
 
 **Comportamiento**:
+
 - Si `games.length > maxItems` → Elimina los más antiguos (FIFO)
 - Si `games.length <= maxItems` → Guarda tal cual
 - Valida que cada item tenga `status` válido
 
 **Ejemplo**:
+
 ```javascript
-const updated = published.filter(g => g.id !== deletedId);
-await savePublishedGamesList(store, updated, 'android');
+const updated = published.filter((g) => g.id !== deletedId);
+await savePublishedGamesList(store, updated, "android");
 ```
 
 ---
@@ -451,9 +498,11 @@ await savePublishedGamesList(store, updated, 'android');
 ### `utils/telegram.js`
 
 #### `requestWithRetry(url, payload, options?)`
+
 **Propósito**: Realiza request a Telegram Bot API con reintentos exponenciales
 
 **Parámetros:**
+
 ```javascript
 {
   url: "https://api.telegram.org/bot<TOKEN>/sendMessage",
@@ -474,6 +523,7 @@ await savePublishedGamesList(store, updated, 'android');
 ```
 
 **Retorna**:
+
 ```javascript
 {
   ok: true | false,
@@ -492,25 +542,28 @@ await savePublishedGamesList(store, updated, 'android');
 ```
 
 **Reintentos automáticos en**:
+
 - 5xx (server error)
 - 429 (rate limit) - espera extra
 - Errores de red
 
 **NO reintenta en**:
+
 - 401 (invalid token)
 - 400 (parámetro inválido)
 - 403 (permiso denegado)
 
 **Ejemplo**:
+
 ```javascript
 const response = await requestWithRetry(
   "https://api.telegram.org/bot<TOKEN>/sendMessage",
   {
     chat_id: "@channel",
     text: "New game available!",
-    parse_mode: "Markdown"
+    parse_mode: "Markdown",
   },
-  { retries: 3 }
+  { retries: 3 },
 );
 
 if (response.ok) {
@@ -523,9 +576,11 @@ if (response.ok) {
 ---
 
 #### `editMessageText(chatId, messageId, text, options?)`
+
 **Propósito**: Edita un mensaje en Telegram (usado para verificar existencia)
 
 **Parámetros**:
+
 ```javascript
 {
   chatId: -1001234567,              // ID del chat/canal
@@ -541,13 +596,14 @@ if (response.ok) {
 **Retorna**: Similar a `requestWithRetry()`
 
 **Uso especial para verificación**:
+
 ```javascript
 // Para verificar sin modificar, enviamos el MISMO texto
 const probe = await editMessageText(
   chatId,
   messageId,
-  originalText,  // Mismo texto = no hay cambio
-  {timeout: 1000}
+  originalText, // Mismo texto = no hay cambio
+  { timeout: 1000 },
 );
 // Si ok: mensaje existe ✅
 // Si error 400: mensaje no existe ❌
@@ -556,9 +612,11 @@ const probe = await editMessageText(
 ---
 
 #### `deleteMessage(chatId, messageId, options?)`
+
 **Propósito**: Borra un mensaje de Telegram
 
 **Parámetros**:
+
 ```javascript
 {
   chatId: "@channel",
@@ -570,8 +628,9 @@ const probe = await editMessageText(
 **Retorna**: `{ok: true|false, error: null|string}`
 
 **Ejemplo**:
+
 ```javascript
-const result = await deleteMessage('@my_channel', 123456);
+const result = await deleteMessage("@my_channel", 123456);
 if (result.ok) {
   console.log("Mensaje borrado");
 } else {
@@ -584,39 +643,45 @@ if (result.ok) {
 ## 🔄 Flujo de Uso Típico
 
 ### Publicar un juego nuevo (check-android)
+
 ```javascript
-const {checkAndroidDeals} = require('./services/android-deals');
-const {getPublishedGamesList, savePublishedGamesList} = require('./utils/memory');
+const { checkAndroidDeals } = require("./services/android-deals");
+const {
+  getPublishedGamesList,
+  savePublishedGamesList,
+} = require("./utils/memory");
 const store = createBlobStore();
 
 // Lee estado actual
-const published = await getPublishedGamesList(store, 'android');
+const published = await getPublishedGamesList(store, "android");
 
 // Procesa y publica
 const result = await checkAndroidDeals(store, published);
 
 // Guarda estado actualizado
-await savePublishedGamesList(store, result.updatedPublished, 'android');
+await savePublishedGamesList(store, result.updatedPublished, "android");
 
 console.log(`[metrics] published_count=${result.publishedCount}`);
 ```
 
 ### Verificar publicados (verify-android)
+
 ```javascript
-const {reconcileAndroidPublications} = require('./services/android-deals');
-const published = await getPublishedGamesList(store, 'android');
+const { reconcileAndroidPublications } = require("./services/android-deals");
+const published = await getPublishedGamesList(store, "android");
 
 const verifyResult = await reconcileAndroidPublications(store, published, {
-  maxCheckPerRun: 50  // Crítico: fue 25
+  maxCheckPerRun: 50, // Crítico: fue 25
 });
 
-await savePublishedGamesList(store, verifyResult.verifiedGames, 'android');
+await savePublishedGamesList(store, verifyResult.verifiedGames, "android");
 console.log(`[metrics] verified_count=${verifyResult.verifiedCount}`);
 ```
 
 ### Producir de RSS (script en GitHub)
+
 ```javascript
-const {buildAndroidRssQueue} = require('./services/android-rss');
+const { buildAndroidRssQueue } = require("./services/android-rss");
 const store = createBlobStore();
 
 const result = await buildAndroidRssQueue(store);

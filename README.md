@@ -9,6 +9,123 @@ Agregador de juegos **100% gratis** (Android + PC) publicado en Telegram. Arquit
 
 ---
 
+## 🎯 Features
+
+- ✅ **Monitoreo 24/7** de juegos gratis (Android + PC)
+- ✅ **100% Serverless** - Sin servidor dedicado
+- ✅ **Costo: $0/mes** - Usando < 1% del free tier
+- ✅ **Deduplicación automática** - Por ID y nombre
+- ✅ **Tests offline** - TDD con mocking avanzado
+- ✅ **Resiliencia** - Locks distribuidos, reintentos exponenciales
+- ✅ **Limpieza automática** - Expiración y garbage collection
+
+---
+
+## 🏗️ Arquitectura
+
+```
+PRODUCTORES (GitHub Actions)              CONSUMIDORES (Netlify Functions)
+├─ Google Play → Queue                     ├─ check-android (cada 20min)
+├─ Reddit RSS → Queue                      ├─ check-pc (cada 12h)
+└─ Android Direct → Queue                  ├─ verify-[platform] (diario)
+         ↓                                  ├─ clean-expired (cada 30min)
+    android_queue                          └─ clean-duplicates (cada 12h)
+    pc_queue                                     ↓
+    (Netlify Blobs)              Telegram (@JuegosJuegosGratis)
+```
+
+**Resumen**: Productores buscan juegos (GitHub, sin timeout) → Consumidores publican (Netlify, <5s) → Storage en Blobs (<1 MB).
+
+---
+
+## 🚀 Quick Start
+
+```bash
+git clone <repo>
+npm install
+cp .env.example .env
+
+npm test                      # Ejecutar tests
+npm run smoke:producer        # Simular productores
+npm run blobs:show            # Ver estado
+```
+
+---
+
+## 🔑 Cómo Funciona
+
+- **Separación de tareas**: Producción pesada en GitHub Actions, publicación ligera en Netlify
+- **Deduplicación**: Por ID, nombre normalizado, y tiempo (24h grace period)
+- **Concurrencia segura**: Locks distribuidos previenen corrupción
+- **Código confiable**: Tests 100% offline sin dependencias de red
+
+👉 **Detalles técnicos completos**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+---
+
+## ⚙️ Configuración (4 variables)
+
+```bash
+NETLIFY_SITE_ID=<your-site>
+NETLIFY_API_TOKEN=<your-token>
+TELEGRAM_TOKEN=<your-bot>
+CHANNEL_ID=@your_channel
+```
+
+👉 **Más variables (opcionales y tuning)**: [docs/QUICK_START.md](docs/QUICK_START.md)
+
+---
+
+## 📊 Números Reales
+
+- **Ejecución**: 3-5 segundos (< 10s limit de Netlify)
+- **Costo**: 0.6 horas/mes (< 1 % del free tier)
+- **Storage**: < 1 MB en Blobs
+- **Confiabilidad**: 99.5%
+
+---
+
+## 📚 Documentación
+
+| Doc | Propósito |
+|-----|-----------|
+| [docs/INDEX.md](docs/INDEX.md) | Índice y navegación |
+| [docs/QUICK_START.md](docs/QUICK_START.md) | Setup y operación diaria |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detalles técnicos |
+| [docs/ai-context/](docs/ai-context/) | Para IAs y devs avanzados |
+
+---
+
+## 🐛 Troubleshooting
+
+| Problema | Solución |
+|----------|----------|
+| Cola no se vacía | Revisa errores de Telegram en logs |
+| 429 Too Many Requests | Reduce `ANDROID_MAX_PUBLISH_PER_RUN` a 12 |
+| Memoria corrupta | `npm run blobs:normalize-memory` |
+
+👉 **Más casos**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+
+---
+
+## 💻 Stack
+
+**Node.js 20.x** · **Netlify Functions + Blobs** · **GitHub Actions** · **Telegram Bot API**
+
+---
+
+## 📄 Licencia
+
+MIT
+
+---
+
+**Comienza aquí**: [docs/INDEX.md](docs/INDEX.md) | **Para IAs**: [docs/ai-context/COMPLETE_GUIDE.md](docs/ai-context/COMPLETE_GUIDE.md)
+
+Agregador de juegos **100% gratis** (Android + PC) publicado en Telegram. Arquitectura **serverless de bajo costo** ($0/mes) usando **Netlify Functions + GitHub Actions**.
+
+---
+
 ## 🎯 Características
 
 - ✅ **Monitoreo 24/7** de juegos gratis en Android (Google Play) y PC (GamerPower)
@@ -35,6 +152,7 @@ PRODUCTORES (GitHub Actions)              CONSUMIDORES (Netlify Functions)
 ```
 
 **Arquitectura híbrida productor-consumidor**:
+
 - Productores pesados corren en **GitHub Actions** (sin timeout)
 - Consumidores ligeros corren en **Netlify Functions** (< 5 segundos)
 - Estado compartido en **Netlify Blobs** (< 1 MB)
@@ -69,87 +187,40 @@ npm run blobs:normalize-memory    # Restaurar si hay corrupción
 
 ---
 
-## 📊 Decisiones Arquitectónicas
+## � Clave del Proyecto
 
-### 1. Productor-Consumidor Desacoplado
-- **Beneficio**: Productores no limitados por timeout de Functions (15s limit)
-- **Beneficio**: Escalabilidad independiente de componentes
-- **Tradeoff**: Complejidad operativa (sincronización de estado)
+- **Productor-Consumidor**: Separa scraping pesado (GitHub Actions) de publicación ligera (Netlify)
+- **Deduplicación Multi-nivel**: Por ID, nombre normalizado y tiempo
+- **Locks Distribuidos**: Sincronización entre componentes sin datos corruptos
+- **Tests 100% Offline**: Validación sin dependencia de APIs externas
 
-### 2. Deduplicación Multi-nivel  
-- **Por ID**: Primera línea de defensa
-- **Por nombre normalizado**: Detecta cambios de título
-- **Protección temporal**: Grace period de 24h antes de expirar
-- **Ratio máximo**: No expira > 35% en una corrida (protección contra purgas masivas)
-
-### 3. Locks Distribuidos
-- **TTL 5 segundos**: Respeta timeout de Netlify
-- **Reintentos exponenciales**: Manejo de contención
-- **Atomicidad**: Una sola corrida accede a estado a la vez
-
-### 4. Testing 100% Offline
-- **Mock avanzado**: APIs de Telegram, Google Play, GamerPower
-- **CI/CD rápido**: Tests en milisegundos sin dependencia de red
-- **Cobertura**: Todos los caminos críticos validados
+👉 **Detalles técnicos en**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
-## 📁 Estructura del Proyecto
+## 📁 Estructura
 
-```
-├─ docs/
-│  ├─ INDEX.md                    ← START HERE para documentación completa
-│  ├─ ARCHITECTURE.md             (Detalles técnicos para desarrolladores)
-│  ├─ QUICK_START.md              (Setup y operación diaria)
-│  └─ ai-context/
-│     └─ COMPLETE_GUIDE.md        (Toda la info que una IA necesita)
-├─ scripts/                       (Productores: GitHub Actions)
-│  ├─ github-android.js
-│  ├─ github-android-rss.js
-│  ├─ github-pc.js
-│  └─ blobs-admin.js
-├─ netlify/functions/             (Consumidores: Netlify Functions)
-│  ├─ check-android.js
-│  ├─ check-pc.js
-│  ├─ clean-expired.js
-│  └─ ...
-├─ services/                      (Lógica de negocio reutilizable)
-│  ├─ android-deals.js
-│  ├─ pc-games.js
-│  └─ ...
-├─ utils/                         (Utilidades)
-│  ├─ memory.js           (Abstracción de Netlify Blobs)
-│  ├─ telegram.js         (Bot API wrapper)
-│  ├─ blob-lock.js        (Locks distribuido)
-│  └─ netlify-blobs.js
-└─ test/                          (Suite de tests offline)
-   ├─ android-deals.test.js
-   └─ ...
-```
+Todo está organizado en carpetas lógicas:
+- `scripts/` - Productores (GitHub Actions)
+- `netlify/functions/` - Consumidores & limpiezas (Netlify)
+- `services/` - Lógica compartida
+- `utils/` - Helpers (storage, Telegram, locks)
+- `test/` - Tests offline
+- `docs/` - Documentación técnica
+
+👉 **Exploración completa**: [docs/INDEX.md](docs/INDEX.md)
 
 ---
 
-## 🔧 Configuración
+## ⚙️ Configuración
 
-**Variables de entorno críticas**:
+**Necesita 4 variables de entorno**:
+- `NETLIFY_SITE_ID` - Tu site en Netlify
+- `NETLIFY_API_TOKEN` - Token de acceso Netlify
+- `TELEGRAM_TOKEN` - Token del bot de Telegram
+- `CHANNEL_ID` - ID del canal donde publicar
 
-```bash
-# Netlify Blobs (almacenamiento)
-NETLIFY_SITE_ID=<your-site-id>
-NETLIFY_API_TOKEN=<your-api-token>
-
-# Telegram
-TELEGRAM_TOKEN=<your-bot-token>
-CHANNEL_ID=@your_channel_id
-
-# Tuning (opcional)
-ANDROID_MAX_PUBLISH_PER_RUN=18           # default: 18
-ANDROID_MAX_EXISTENCE_CHECK_PER_RUN=50   # default: 50
-ANDROID_STATE_LOCK_TTL_MS=5000           # default: 5s
-MANUAL_FUNCTION_KEY=<optional-auth-key>
-```
-
-Ver [docs/INDEX.md](docs/INDEX.md) para todos los parámetros.
+👉 **Variables opcionales y tuning**: [docs/QUICK_START.md](docs/QUICK_START.md)
 
 ---
 
@@ -165,21 +236,25 @@ Ver [docs/INDEX.md](docs/INDEX.md) para todos los parámetros.
 ## 🧪 Operación
 
 ### Ver estado actual
+
 ```bash
 npm run blobs:show
 ```
 
 ### Forzar ejecución del productor
+
 ```bash
 npm run smoke:producer
 ```
 
 ### Limpiar duplicados
+
 ```bash
 npm run blobs:normalize-memory
 ```
 
 ### Ejecutar tests
+
 ```bash
 npm test
 ```
@@ -188,104 +263,43 @@ npm test
 
 ## 📚 Documentación
 
-| Documento | Propósito |
-|-----------|-----------|
-| [docs/INDEX.md](docs/INDEX.md) | Índice y navegación |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arquitectura técnica |
-| [docs/QUICK_START.md](docs/QUICK_START.md) | Setup y operación diaria |
-| [docs/ai-context/](docs/ai-context/) | Info para trabajar con IA |
+| Documento                                    | Propósito                 |
+| -------------------------------------------- | ------------------------- |
+| [docs/INDEX.md](docs/INDEX.md)               | Índice y navegación       |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arquitectura técnica      |
+| [docs/QUICK_START.md](docs/QUICK_START.md)   | Setup y operación diaria  |
+| [docs/ai-context/](docs/ai-context/)         | Info para trabajar con IA |
 
 ---
 
 ## 🐛 Troubleshooting
 
 **Cola no se vacía**
+
 - Revisa errores de Telegram en logs (`npm run ops:status`)
 - Items fallidos se re-encolan automáticamente
 
 **Too Many Requests (429)**
+
 - Reduce `ANDROID_MAX_PUBLISH_PER_RUN` a 15-18
 - Los items se difieren al siguiente ciclo
 
 **Memoria corrupta**
+
 - Ejecuta: `npm run blobs:normalize-memory`
 
 ---
 
-## 📝 Stack
+## � Stack
 
-- **Backend**: Node.js 20.x, ES Modules
-- **Cloud**: Netlify Functions (AWS Lambda), Netlify Blobs
-- **CI/CD**: GitHub Actions
-- **Tests**: Node.js native test runner
-- **Bot**: Telegram Bot API
-- **Scrapers**: google-play-scraper
+**Backend**: Node.js 20.x  
+**Cloud**: Netlify Functions + Blobs  
+**CI/CD**: GitHub Actions  
+**Bot**: Telegram Bot API de Telegram en logs |
+| Too Many Requests (429) | Reduce `ANDROID_MAX_PUBLISH_PER_RUN` a 12-15 |
+| Memoria corrupta | `npm run blobs:normalize-memory` |
 
----
-
-## 📄 Licencia
-
-MIT
-
----
-
-**Para desarrolladores e IAs**: Ver [docs/INDEX.md](docs/INDEX.md) para documentación completa y referencias técnicas.
-
-El diseño arquitectónico prioriza la eficiencia extrema, logrando los siguientes márgenes operativos mensuales en Netlify AWS Lambda:
-
-- **Tiempo de Cómputo (Compute Time):** ~0.6 horas / mes _(Utilizando < 1% de la cuota gratuita de 100 horas)_. Las funciones se inicializan, ejecutan y destruyen en promedios de 250ms a 350ms.
-- **Peticiones (Invocations):** ~2,220 / mes _(Utilizando apenas el 1.7% del límite de 125,000 peticiones)_.
-- **Huella de Memoria (Storage Footprint):** < 1 MB constantes en base de datos.
-
----
-
-## 🧠 Decisiones de Ingeniería y Arquitectura
-
-- **Microservicios Desacoplados:** En lugar de un orquestador monolítico, el sistema divide las cargas de trabajo según la volatilidad de la fuente. Esto **redujo el consumo de peticiones de red en un 74%** y evita bloqueos por _Rate Limiting_ (HTTP 429).
-  - _Google Play Scraper (Android):_ Ejecución cada 20 minutos con camuflaje de `User-Agent`.
-  - _Reddit RSS (Android):_ Ejecución cada 4 horas desde GitHub Actions consumiendo `r/googleplaydeals/new.rss`.
-  - _GamerPower API (PC):_ Ejecución programada 2 veces al día filtrando parámetros directamente desde el origen.
-- **Garbage Collection y Gestión de Memoria Dual:** Para evitar _Memory Leaks_ en el almacén de datos (Netlify Blobs), se implementaron dos estrategias de limpieza automatizada en memoria RAM:
-  - _Sincronización de Estado (PC):_ Purga automática de IDs que ya no están activos en el _endpoint_ origen.
-  - _Cola Circular FIFO (Android):_ Límite estricto de retención a los últimos 300 registros, garantizando lecturas/escrituras de latencia ultrabaja (O(1) footprint).
-- **Paridad de Entornos (Dev/Prod):** Integración de variables de entorno dinámicas. El código es 100% agnóstico a la infraestructura, ejecutándose de manera idéntica en local y en producción sin alterar la lógica de conexión.
-- **TDD y Testing 100% Offline (CI/CD):** Implementación de pruebas unitarias usando el _test runner_ nativo (`node:test`) con _Mocking_ avanzado de APIs externas (Fetch/Telegram/Scrapers). Esto garantiza que el _pipeline_ de GitHub Actions se ejecute en milisegundos sin dependencia de red.
-
-## ⚙️ Flujo de Operación de los Microservicios
-
-1.  **El Disparador (Cron):** GitHub Actions ejecuta los productores y Netlify ejecuta consumidores y limpiezas ligeras.
-2.  **Extracción:** Los servicios consultan las tiendas. El sistema es tolerante a fallos (`try/catch`) ante posibles caídas de estos servicios externos.
-3.  **Filtro de Negocio:** Se aplican reglas estrictas de validación (ej. buscar metadatos que confirmen descuentos totales o etiquetas de popularidad).
-4.  **Validación de Caché:** Se contrasta el ID de la oferta contra la memoria ultraligera en Netlify Blobs para evitar publicaciones duplicadas.
-5.  **Publicación y Limpieza:** Se formatea y transmite el mensaje a Telegram vía webhook, y se invoca el _Garbage Collector_ antes de guardar el nuevo estado.
-
-## 🏗️ Stack Tecnológico
-
-- **Infraestructura Cloud:** Netlify (Scheduled Functions / AWS Lambda por debajo), Netlify Blobs.
-- **Backend:** Node.js, `google-play-scraper` (Importación dinámica ES Modules).
-- **Integración Continua:** GitHub Actions.
-- **Frontend / Notificaciones:** Telegram Bot API (Markdown).
-
----
-
-## 🔄 Arquitectura Híbrida 2.0 (Productor-Consumidor)
-
-El scraping pesado ya no corre dentro de Netlify Functions.
-
-1. **Productor (GitHub Actions):**
-   - Ejecuta `scripts/github-android.js` y `scripts/github-pc.js`.
-
-- Escribe colas en Blobs: `android_queue`, `pc_queue`, `pc_expired`.
-
-2. **Productor RSS (GitHub Actions):**
-
-- Ejecuta `scripts/github-android-rss.js` cada 4 horas.
-- Lee `https://www.reddit.com/r/googleplaydeals/new.rss` y agrega solo juegos gratis nuevos a `android_queue`.
-- Cada ID del feed se valida en Google Play (`google-play-scraper`): categoria de juego (`GAME_*`) + precio actual gratis + precio original mayor a 0.
-- Deduplica contra `published_games_android` y contra la cola ya existente.
-- En la misma corrida infiere expirados desde el feed y llena `android_expired`.
-- Incluye guardas anti-falsos positivos: `ANDROID_RSS_MIN_ACTIVE_IDS`, `ANDROID_RSS_EXPIRATION_GRACE_HOURS` y `ANDROID_RSS_MAX_EXPIRE_RATIO`.
-- Incluye control de ritmo para validacion de detalles: `ANDROID_RSS_DETAILS_DELAY_MS`.
+👉 **Más casos**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)es e IAs**: [docs/INDEX.md](docs/INDEX.md)
 
 3. **Scanner de Expirados Android (GitHub Actions):**
 
@@ -350,13 +364,9 @@ Métricas mínimas en logs:
 
 - `items_produced`
 - `items_published`
-- `items_expired`
-- `publish_errors`
-- `delete_errors`
-
 ---
 
-## 🧪 Smoke Test Operativo
+**Documentación completa para desarrolladores e IAs**: [docs/INDEX.md](docs/INDEX.md)
 
 Prerequisitos:
 
