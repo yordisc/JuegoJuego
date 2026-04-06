@@ -49,12 +49,23 @@ function resolveTargetChatId(event) {
 }
 
 function isTelegramDeleteNotAllowed(status, errorText) {
-  if (status !== 400) {
+  if (status !== 400 && status !== 403) {
     return false;
   }
 
-  const text = String(errorText || "").toLowerCase();
-  return text.includes("message can't be deleted") || text.includes("message can\u2019t be deleted");
+  const text = String(errorText || "")
+    .toLowerCase()
+    .replace(/\u2019/g, "'");
+
+  return (
+    text.includes("message can't be deleted") ||
+    text.includes("message cant be deleted") ||
+    text.includes("message can't be deleted for everyone") ||
+    text.includes("not enough rights to delete message") ||
+    text.includes("have no rights to delete a message") ||
+    text.includes("message_delete_forbidden") ||
+    text.includes("chat_admin_required")
+  );
 }
 
 async function readResponseText(response) {
@@ -448,4 +459,8 @@ exports.handler = async (event) => {
       body: JSON.stringify({ success: false, error: String(error) }),
     };
   }
+};
+
+exports._private = {
+  isTelegramDeleteNotAllowed,
 };
