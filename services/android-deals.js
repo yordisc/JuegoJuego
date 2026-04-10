@@ -1,7 +1,11 @@
 // services/android-deals.js
 
+const fs = require("node:fs/promises");
+const path = require("node:path");
+
 const KEY_ANDROID_QUEUE = "android_queue";
 const KEY_ANDROID_EXPIRED = "android_expired";
+const KEY_ANDROID_WATCHLIST_ALERTS = "android_watchlist_alerts";
 const {
   PUBLICATION_STATUS,
   normalizePublicationStatus,
@@ -13,6 +17,13 @@ const {
   saveTrackedMessages,
   trackTelegramMessage,
 } = require("./manual-maintenance");
+
+const DEFAULT_ANDROID_WATCHLIST_PATH = path.resolve(
+  __dirname,
+  "..",
+  "config",
+  "android-discount-watchlist.json"
+);
 
 function getPublishedGameId(entry) {
   if (typeof entry === "string") {
@@ -206,6 +217,337 @@ function buildAndroidMessage(item) {
   );
 }
 
+function parseWatchlistNames(raw) {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+
+  if (!raw || typeof raw !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(raw.games)) {
+    return raw.games;
+  }
+
+  if (Array.isArray(raw.titles)) {
+    return raw.titles;
+  }
+
+  if (Array.isArray(raw.items)) {
+    return raw.items;
+  }
+
+  return [];
+}
+
+function normalizeWatchlistEntry(rawEntry) {
+  if (typeof rawEntry === "string") {
+    const name = rawEntry.trim();
+    if (!name) {
+      return null;
+    }
+
+    const pattern = normalizeTitleForMatch(name);
+    if (!pattern) {
+      return null;
+    }
+
+    return {
+      name,
+      matchMode: "includes",
+      patterns: [pattern],
+    };
+  }
+
+  if (!rawEntry || typeof rawEntry !== "object") {
+    return null;
+  }
+
+  const rawName =
+    typeof rawEntry.name === "string" ? rawEntry.name :
+      typeof rawEntry.title === "string" ? rawEntry.title :
+        typeof rawEntry.game === "string" ? rawEntry.game : "";
+  const name = rawName.trim();
+  if (!name) {
+    return null;
+  }
+
+  const modeRaw = String(rawEntry.match || rawEntry.mode || "includes")
+    .trim()
+    .toLowerCase();
+  const matchMode = ["includes", "exact", "word"].includes(modeRaw)
+    ? modeRaw
+    : "includes";
+
+  const aliases = Array.isArray(rawEntry.aliases)
+    ? rawEntry.aliases
+    : [];
+  const variants = [name, ...aliases]
+    .map((value) => normalizeTitleForMatch(value))
+    .filter(Boolean);
+  const patterns = Array.from(new Set(variants));
+  if (patterns.length === 0) {
+    return null;
+  }
+
+  return {
+    name,
+    matchMode,
+    patterns,
+  };
+}
+
+function normalizeWatchlistEntries(names) {
+  if (!Array.isArray(names)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const normalized = [];
+
+  for (const entry of names) {
+    const normalizedEntry = normalizeWatchlistEntry(entry);
+    if (!normalizedEntry) {
+      continue;
+    }
+
+    const signature = JSON.stringify({
+      mode: normalizedEntry.matchMode,
+      patterns: normalizedEntry.patterns,
+    });
+
+    if (seen.has(signature)) {
+      continue;
+    }
+
+    seen.add(signature);
+    normalized.push(normalizedEntry);
+  }
+
+  return normalized;
+}
+
+async function resolveAndroidWatchlist(options = {}) {
+  const envDisabled = String(process.env.ANDROID_WATCHLIST_ENABLED || "")
+    .trim()
+    .toLowerCase();
+  const watchlistEnabled = !["0", "false", "no", "off"].includes(envDisabled);
+
+  if (!watchlistEnabled) {
+    return [];
+  }
+
+  if (Array.isArray(options.watchlistNames)) {
+    return normalizeWatchlistEntries(options.watchlistNames);
+  }
+
+  const watchlistPath =
+    options.watchlistPath
+    || process.env.ANDROID_WATCHLIST_PATH
+    || DEFAULT_ANDROID_WATCHLIST_PATH;
+
+  try {
+    const raw = await fs.readFile(watchlistPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return normalizeWatchlistEntries(parseWatchlistNames(parsed));
+  } catch (err) {
+    console.warn(
+      `[android-consumer] No se pudo cargar watchlist Android (${watchlistPath}): ${err.message}`
+    );
+    return [];
+  }
+}
+
+function findAndroidWatchlistMatch(item, watchlist = []) {
+  if (!Array.isArray(watchlist) || watchlist.length === 0) {
+    return null;
+  }
+
+  const normalizedWatchlist = normalizeWatchlistEntries(watchlist);
+  if (normalizedWatchlist.length === 0) {
+    return null;
+  }
+
+  const id = getPublishedGameId(item);
+  const title =
+    item && typeof item === "object" && typeof item.title === "string"
+      ? item.title
+      : "";
+
+  const normalizedTitle = normalizeTitleForMatch(title);
+  const normalizedId = normalizeTitleForMatch(id);
+  const normalizedCombined = `${normalizedTitle} ${normalizedId}`.trim();
+  if (!normalizedCombined) {
+    return null;
+  }
+
+  for (const entry of normalizedWatchlist) {
+    if (!entry || typeof entry !== "object" || !Array.isArray(entry.patterns)) {
+      continue;
+    }
+
+    for (const pattern of entry.patterns) {
+      if (!pattern) {
+        continue;
+      }
+
+      if (entry.matchMode === "exact") {
+        if (normalizedTitle === pattern || normalizedId === pattern) {
+          return { ...entry, matchedPattern: pattern };
+        }
+        continue;
+      }
+
+      if (entry.matchMode === "word") {
+        const withPadding = ` ${normalizedCombined} `;
+        const patternPadding = ` ${pattern} `;
+        if (withPadding.includes(patternPadding)) {
+          return { ...entry, matchedPattern: pattern };
+        }
+        continue;
+      }
+
+      if (normalizedCombined.includes(pattern)) {
+        return { ...entry, matchedPattern: pattern };
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildAndroidWatchlistAlertMessage(item, match = null) {
+  const title = item.title || item.id || "Android Deal";
+  const score = Number.isFinite(item.score) ? item.score.toFixed(1) : "N/A";
+  const url =
+    item.url ||
+    (item.id
+      ? `https://play.google.com/store/apps/details?id=${item.id}`
+      : "https://play.google.com/store/apps");
+  const watchName =
+    match && typeof match === "object" && typeof match.name === "string"
+      ? match.name
+      : "Juego monitoreado";
+
+  const safeTitle = escapeTelegramMarkdownText(title);
+  const safeWatchName = escapeTelegramMarkdownText(watchName);
+  const safeUrl = escapeTelegramMarkdownUrl(url);
+
+  return (
+    `📱 **NEW ANDROID DEAL** 📱\n\n` +
+    `🎯 *WATCHLIST MATCH: ${safeWatchName}*\n` +
+    `🎮 *${safeTitle}*\n` +
+    `⭐ Rating: ${score}\n\n` +
+    `👉 [Get it on Google Play](${safeUrl})`
+  );
+}
+
+function normalizeWatchlistAlertEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const id = getPublishedGameId(entry);
+  if (!id) {
+    return null;
+  }
+
+  const sentAtRaw = entry.sentAt;
+  const sentAt = Number.isInteger(sentAtRaw)
+    ? sentAtRaw
+    : typeof sentAtRaw === "string" && /^\d+$/.test(sentAtRaw)
+      ? Number(sentAtRaw)
+      : null;
+
+  if (!Number.isInteger(sentAt) || sentAt <= 0) {
+    return null;
+  }
+
+  const matchedName =
+    typeof entry.matchedName === "string" && entry.matchedName.trim()
+      ? entry.matchedName.trim()
+      : null;
+
+  return {
+    id,
+    sentAt,
+    matchedName,
+  };
+}
+
+async function readWatchlistAlerts(store) {
+  const raw = await readJsonArray(store, KEY_ANDROID_WATCHLIST_ALERTS);
+  const normalized = [];
+  const seen = new Set();
+
+  for (const entry of raw) {
+    const parsed = normalizeWatchlistAlertEntry(entry);
+    if (!parsed || seen.has(parsed.id)) {
+      continue;
+    }
+
+    seen.add(parsed.id);
+    normalized.push(parsed);
+  }
+
+  return normalized;
+}
+
+function shouldSendWatchlistAlert(item, history, cooldownMs, now) {
+  const id = getPublishedGameId(item);
+  if (!id) {
+    return true;
+  }
+
+  const found = history.find((entry) => entry.id === id);
+  if (!found) {
+    return true;
+  }
+
+  return now - found.sentAt >= cooldownMs;
+}
+
+function upsertWatchlistAlertHistory(history, item, match, now) {
+  const id = getPublishedGameId(item);
+  if (!id) {
+    return history;
+  }
+
+  const matchedName =
+    match && typeof match === "object" && typeof match.name === "string"
+      ? match.name
+      : null;
+
+  const next = history.filter((entry) => entry.id !== id);
+  next.push({
+    id,
+    sentAt: now,
+    matchedName,
+  });
+
+  return next;
+}
+
+function pruneWatchlistAlertHistory(history, now, retentionMs) {
+  return history
+    .filter((entry) => now - entry.sentAt <= retentionMs)
+    .sort((a, b) => b.sentAt - a.sentAt)
+    .slice(0, 1000);
+}
+
+async function sendAndroidWatchlistAlert(item, match) {
+  const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+  const response = await requestWithRetry(`${telegramBase}/sendMessage`, {
+    chat_id: process.env.CHANNEL_ID,
+    text: buildAndroidWatchlistAlertMessage(item, match),
+    parse_mode: "Markdown",
+    disable_web_page_preview: false,
+  });
+
+  return response;
+}
+
 async function sendAndroidPublication(item) {
   const message = buildAndroidMessage(item);
   const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
@@ -350,6 +692,14 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   const processExpired = options.processExpired !== false;
   const maxPublishPerRun = readPositiveIntEnv("ANDROID_MAX_PUBLISH_PER_RUN", 18);
   const maxDeletePerRun = readPositiveIntEnv("ANDROID_MAX_DELETE_PER_RUN", 18);
+  const now = Number.isInteger(options.now) ? options.now : Date.now();
+  const watchlist = await resolveAndroidWatchlist(options);
+  const watchlistCooldownHours = Number.isInteger(options.watchlistCooldownHours)
+    ? options.watchlistCooldownHours
+    : readPositiveIntEnv("ANDROID_WATCHLIST_ALERT_COOLDOWN_HOURS", 24);
+  const watchlistCooldownMs = watchlistCooldownHours * 60 * 60 * 1000;
+  const watchlistRetentionMs = Math.max(watchlistCooldownMs * 7, 7 * 24 * 60 * 60 * 1000);
+  let watchlistAlertHistory = await readWatchlistAlerts(store);
 
   const queue = dedupeById(await readJsonArray(store, KEY_ANDROID_QUEUE));
   const expiredQueue = dedupeById(await readJsonArray(store, KEY_ANDROID_EXPIRED));
@@ -363,6 +713,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   let publishErrors = 0;
   let deleteErrors = 0;
   let deleteAttempts = 0;
+  let watchlistAlertsSent = 0;
   const retryQueue = [];
   const retryExpiredQueue = [];
 
@@ -443,6 +794,39 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
         }
         publishedIds.add(id);
         publishedCount += 1;
+
+        const watchlistMatch = findAndroidWatchlistMatch(item, watchlist);
+        if (watchlistMatch) {
+          if (!shouldSendWatchlistAlert(item, watchlistAlertHistory, watchlistCooldownMs, now)) {
+            console.log(`[android-consumer] Alerta watchlist omitida por cooldown para ${id}`);
+            continue;
+          }
+
+          try {
+            const alertResponse = await sendAndroidWatchlistAlert(item, watchlistMatch);
+            if (!alertResponse.ok) {
+              const details = await readTelegramError(alertResponse);
+              console.warn(
+                `[android-consumer] No se pudo enviar alerta watchlist para ${id}: ${details.text}`
+              );
+            } else {
+              watchlistAlertsSent += 1;
+              watchlistAlertHistory = upsertWatchlistAlertHistory(
+                watchlistAlertHistory,
+                item,
+                watchlistMatch,
+                now
+              );
+              console.log(
+                `[android-consumer] Alerta watchlist enviada para ${id} (${watchlistMatch.name})`
+              );
+            }
+          } catch (watchlistErr) {
+            console.warn(
+              `[android-consumer] Error enviando alerta watchlist para ${id}: ${watchlistErr.message}`
+            );
+          }
+        }
       } catch (err) {
         console.error("[android-consumer] Error de red publicando:", err.message);
         publishErrors += 1;
@@ -531,6 +915,15 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
     await writeQueue(store, KEY_ANDROID_EXPIRED, dedupeById(retryExpiredQueue));
   }
 
+  if (processQueue) {
+    const nextWatchlistHistory = pruneWatchlistAlertHistory(
+      watchlistAlertHistory,
+      now,
+      watchlistRetentionMs
+    );
+    await writeQueue(store, KEY_ANDROID_WATCHLIST_ALERTS, nextWatchlistHistory);
+  }
+
   console.log(
     `[android-consumer] Publicados: ${publishedCount} | Expirados: ${expiredCount}`
   );
@@ -539,6 +932,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
       source: "consumer-android",
       items_published: publishedCount,
       items_expired: expiredCount,
+      watchlist_alerts: watchlistAlertsSent,
       publish_errors: publishErrors,
       delete_errors: deleteErrors,
     })}`
@@ -547,6 +941,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   return {
     publishedCount,
     expiredCount,
+    watchlistAlertsSent,
     queueProcessed: queue.length,
     expiredProcessed: expiredQueue.length,
   };
@@ -768,5 +1163,9 @@ module.exports = {
   checkAndroidDeals,
   reconcileAndroidPublications,
   buildAndroidMessage,
+  buildAndroidWatchlistAlertMessage,
   escapeTelegramMarkdownText,
+  findAndroidWatchlistMatch,
+  normalizeWatchlistEntries,
+  parseWatchlistNames,
 };

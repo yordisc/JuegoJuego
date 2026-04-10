@@ -1,0 +1,75 @@
+{
+  "games": [
+    "Balatro",
+    {
+      "name": "Minecraft",
+      "aliases": [
+        "Minecraft PE",
+        "Minecraft Pocket Edition"
+      ],
+      "match": "word"
+    },
+    "Terraria",
+    {
+      "name": "Baldur's Gate",
+      "match": "includes"
+    },
+    {
+      "name": "Stardew Valley",
+      "aliases": [
+        "Stardew alley"
+      ],
+      "match": "includes"
+    },
+    {
+      "name": "Total War",
+      "match": "word"
+    },
+    {
+      "name": "Grand Theft Auto",
+      "aliases": [
+        "GTA"
+      ],
+      "match": "word"
+    },
+    "Real Combat Simulator",
+    "Mini Metro",
+    "Slay the Spire",
+    {
+      "name": "FINAL FANTASY",
+      "aliases": [
+        "Final Fantasy"
+      ],
+      "match": "word"
+    },
+    {
+      "name": "Dragon Quest",
+      "match": "word"
+    },
+    {
+      "name": "Papers, Please",
+      "aliases": [
+        "Papers Please"
+      ],
+      "match": "includes"
+    },
+    {
+      "name": "Five Nights at Freddy's",
+      "aliases": [
+        "FNAF"
+      ],
+      "match": "word"
+    },
+    {
+      "name": "Monument Valley",
+      "match": "word"
+    },
+    {
+      "name": "Need For Speed",
+      "aliases": [
+        "NFS"
+      ],
+      "match": "word"
+    }
+  ]
+}

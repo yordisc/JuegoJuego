@@ -74,6 +74,41 @@ CHANNEL_ID=@your_channel
 
 👉 **Más variables (opcionales y tuning)**: [docs/QUICK_START.md](docs/QUICK_START.md)
 
+### Watchlist Android por JSON (alertas Telegram)
+
+Si quieres alertas especiales cuando aparezcan juegos concretos en el scraper Android, edita [config/android-discount-watchlist.json](config/android-discount-watchlist.json):
+
+```json
+{
+  "games": [
+    "Balatro",
+    {
+      "name": "Minecraft",
+      "aliases": ["Minecraft PE", "Minecraft Pocket Edition"],
+      "match": "word"
+    }
+  ]
+}
+```
+
+Cuando un juego nuevo de `android_queue` tenga un titulo que coincida con la watchlist, el bot enviara un mensaje adicional al mismo `CHANNEL_ID`, con el mismo estilo de formato de los mensajes Android normales.
+
+Reglas de matching:
+
+- `"Balatro"` usa `includes` por defecto.
+- Objeto con `match` permite `includes`, `exact` o `word`.
+- `aliases` agrega variantes del nombre para detectar posts del scraper.
+
+Anti-duplicado de alertas:
+
+- Se guarda historial por `app id` y no se reenvia alerta del mismo juego hasta que pase el cooldown.
+
+Variables opcionales:
+
+- `ANDROID_WATCHLIST_ENABLED=true|false` (default: `true`)
+- `ANDROID_WATCHLIST_PATH=/ruta/al/watchlist.json` (default: `config/android-discount-watchlist.json`)
+- `ANDROID_WATCHLIST_ALERT_COOLDOWN_HOURS=24` (default: `24`)
+
 ---
 
 ## 📊 Números Reales

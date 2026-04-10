@@ -4,7 +4,11 @@ const {
   checkAndroidDeals,
   reconcileAndroidPublications,
   buildAndroidMessage,
+  buildAndroidWatchlistAlertMessage,
   escapeTelegramMarkdownText,
+  findAndroidWatchlistMatch,
+  normalizeWatchlistEntries,
+  parseWatchlistNames,
 } = require("../services/android-deals");
 
 process.env.TELEGRAM_TOKEN = "test-token";
@@ -306,6 +310,181 @@ test("Suite Android Consumer", async (t) => {
         "[Get it on Google Play](https://play.google.com/store/apps/details?id=com.markdown.test&ref=\\(promo\\))"
       )
     );
+  });
+
+  await t.test("parseWatchlistNames acepta formato objeto y array", () => {
+    assert.deepStrictEqual(parseWatchlistNames(["Balatro"]), ["Balatro"]);
+    assert.deepStrictEqual(
+      parseWatchlistNames({ games: ["Balatro", "Minecraft"] }),
+      ["Balatro", "Minecraft"]
+    );
+    assert.deepStrictEqual(parseWatchlistNames({ titles: ["Balatro"] }), ["Balatro"]);
+    assert.deepStrictEqual(parseWatchlistNames({ items: ["Balatro"] }), ["Balatro"]);
+    assert.deepStrictEqual(parseWatchlistNames({ foo: ["Balatro"] }), []);
+  });
+
+  await t.test("findAndroidWatchlistMatch detecta juego monitoreado por nombre", () => {
+    const match = findAndroidWatchlistMatch(
+      { id: "com.example.balatro", title: "Balatro Mobile Edition" },
+      ["balatro", "minecraft"]
+    );
+
+    assert.ok(match);
+    assert.strictEqual(match.matchedPattern, "balatro");
+  });
+
+  await t.test("normalizeWatchlistEntries soporta alias y modos de match", () => {
+    const normalized = normalizeWatchlistEntries([
+      "Balatro",
+      {
+        name: "Minecraft",
+        aliases: ["Minecraft Pocket Edition", "Minecraft PE"],
+        match: "word",
+      },
+      {
+        title: "Stardew Valley",
+        mode: "exact",
+      },
+    ]);
+
+    assert.strictEqual(normalized.length, 3);
+    assert.strictEqual(normalized[0].matchMode, "includes");
+    assert.strictEqual(normalized[1].matchMode, "word");
+    assert.strictEqual(normalized[2].matchMode, "exact");
+    assert.ok(normalized[1].patterns.includes("minecraft pe"));
+  });
+
+  await t.test("findAndroidWatchlistMatch respeta modos exact y word", () => {
+    const watchlist = [
+      { name: "Tiny Room", match: "exact" },
+      { name: "Minecraft", match: "word" },
+    ];
+
+    const exactMiss = findAndroidWatchlistMatch(
+      { id: "com.game.tinyroom", title: "Tiny Room Story" },
+      watchlist
+    );
+    assert.strictEqual(exactMiss, null);
+
+    const exactHit = findAndroidWatchlistMatch(
+      { id: "com.game.tinyroom", title: "Tiny Room" },
+      watchlist
+    );
+    assert.strictEqual(exactHit && exactHit.name, "Tiny Room");
+
+    const wordHit = findAndroidWatchlistMatch(
+      { id: "com.example.minecraft.pe", title: "Oferta de Minecraft PE" },
+      watchlist
+    );
+    assert.strictEqual(wordHit && wordHit.name, "Minecraft");
+  });
+
+  await t.test("buildAndroidWatchlistAlertMessage escapa markdown", () => {
+    const message = buildAndroidWatchlistAlertMessage({
+      id: "com.balatro.android",
+      title: "Balatro_[VIP]",
+      url: "https://play.google.com/store/apps/details?id=com.balatro.android&ref=(deal)",
+    });
+
+    assert.ok(message.includes("NEW ANDROID DEAL"));
+    assert.ok(message.includes("WATCHLIST MATCH"));
+    assert.ok(message.includes("Balatro\\_\\[VIP\\]"));
+    assert.ok(message.includes("ref=\\(deal\\)"));
+  });
+
+  await t.test("Envia alerta watchlist al publicar juego monitoreado", async () => {
+    const sendMessageCalls = [];
+    global.fetch = async (url, opts = {}) => {
+      if (url.includes("sendMessage")) {
+        sendMessageCalls.push(JSON.parse(opts.body || "{}"));
+      }
+
+      if (url.includes("sendPhoto") || url.includes("sendMessage")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 222 } }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      };
+    };
+
+    const store = createStore({
+      android_queue: [
+        {
+          id: "com.example.balatro",
+          title: "Balatro",
+          url: "https://play.google.com/store/apps/details?id=com.example.balatro",
+        },
+      ],
+      android_expired: [],
+    });
+
+    const result = await checkAndroidDeals(store, [], {
+      watchlistNames: ["Balatro", "Minecraft"],
+    });
+
+    assert.strictEqual(result.publishedCount, 1);
+    assert.strictEqual(result.watchlistAlertsSent, 1);
+    assert.strictEqual(sendMessageCalls.length, 2);
+    assert.ok(
+      sendMessageCalls.some((call) => String(call.text || "").includes("WATCHLIST MATCH"))
+    );
+  });
+
+  await t.test("No repite alerta watchlist dentro del cooldown", async () => {
+    const now = Date.now();
+    const sendMessageCalls = [];
+
+    global.fetch = async (url, opts = {}) => {
+      if (url.includes("sendMessage")) {
+        sendMessageCalls.push(JSON.parse(opts.body || "{}"));
+      }
+
+      if (url.includes("sendPhoto") || url.includes("sendMessage")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 999 } }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      };
+    };
+
+    const store = createStore({
+      android_queue: [
+        {
+          id: "com.example.balatro",
+          title: "Balatro",
+          url: "https://play.google.com/store/apps/details?id=com.example.balatro",
+        },
+      ],
+      android_expired: [],
+      android_watchlist_alerts: [
+        {
+          id: "com.example.balatro",
+          sentAt: now,
+          matchedName: "Balatro",
+        },
+      ],
+    });
+
+    const result = await checkAndroidDeals(store, [], {
+      watchlistNames: ["Balatro"],
+      watchlistCooldownHours: 24,
+      now,
+    });
+
+    assert.strictEqual(result.publishedCount, 1);
+    assert.strictEqual(result.watchlistAlertsSent, 0);
+    assert.strictEqual(sendMessageCalls.length, 1);
+    assert.ok(!String(sendMessageCalls[0].text || "").includes("WATCHLIST MATCH"));
   });
 
   await t.test("Reconciliacion verifica por tracking de id/titulo y republica pendientes", async () => {
