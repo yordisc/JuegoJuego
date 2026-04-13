@@ -30,6 +30,38 @@ npm run ops:status
 # ✅ State summary
 ```
 
+### Checklist rápido: status con autoborrado en producción
+
+En Netlify/GitHub Secrets valida estas variables:
+
+```bash
+TELEGRAM_TOKEN=<token bot>
+CHANNEL_ID=<chat destino>
+ANDROID_STATUS_ALERT_ENABLED=true
+PC_STATUS_ALERT_ENABLED=true
+ANDROID_STATUS_ALERT_CHAT_ID=<opcional, default CHANNEL_ID>
+PC_STATUS_ALERT_CHAT_ID=<opcional, default CHANNEL_ID>
+
+# Operación / logging
+FUNCTION_LOG_LEVEL=compact   # debug|compact
+
+# Locks PC (si no se define, se usan defaults seguros)
+PC_STATE_LOCK_KEY=pc_state_lock
+PC_STATE_LOCK_TTL_MS=90000
+PC_STATE_LOCK_RETRIES=20
+PC_STATE_LOCK_RETRY_DELAY_MS=1000
+```
+
+También valida permisos del bot en Telegram:
+
+- Admin del canal/chat objetivo.
+- Permiso para enviar mensajes.
+- Permiso para borrar mensajes.
+
+Verificación recomendada:
+
+- Ejecutar `manual-delete-smoke` para confirmar `sendMessage` + `deleteMessage` en el mismo chat.
+
 ## 3️⃣ Ejecutar Primera Vez (15 min)
 
 ### Opción A: Solo Productor (Recomendado para test)
@@ -97,6 +129,8 @@ npm run blobs:show
 ```bash
 npm test
 ```
+
+El comando guarda salida completa en `test-results.log`.
 
 ### Quiero limitar items a 10 (para testing rápido)
 

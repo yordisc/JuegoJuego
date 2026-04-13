@@ -729,15 +729,33 @@ async function getMaintenanceSnapshot(store, options = {}) {
     ? Math.max(1, options.sampleSize)
     : 10;
 
-  const androidPublished = await getPublishedGamesList(store, "android");
-  const pcPublished = await getPublishedGamesList(store, "pc");
-  const androidQueue = dedupeById(await readJsonArray(store, KEY_ANDROID_QUEUE));
-  const pcQueue = dedupeById(await readJsonArray(store, KEY_PC_QUEUE));
-  const androidExpired = dedupeById(await readJsonArray(store, KEY_ANDROID_EXPIRED));
-  const pcExpired = dedupeById(await readJsonArray(store, KEY_PC_EXPIRED));
-  const backlog = dedupeById(await readJsonArray(store, KEY_MANUAL_TELEGRAM_BACKLOG));
-  const trackedSent = await readTrackedMessages(store);
-  const deleteSmoke = await readJsonObject(store, KEY_MANUAL_DELETE_SMOKE_RESULT);
+  const [
+    androidPublished,
+    pcPublished,
+    androidQueueRaw,
+    pcQueueRaw,
+    androidExpiredRaw,
+    pcExpiredRaw,
+    backlogRaw,
+    trackedSent,
+    deleteSmoke,
+  ] = await Promise.all([
+    getPublishedGamesList(store, "android"),
+    getPublishedGamesList(store, "pc"),
+    readJsonArray(store, KEY_ANDROID_QUEUE),
+    readJsonArray(store, KEY_PC_QUEUE),
+    readJsonArray(store, KEY_ANDROID_EXPIRED),
+    readJsonArray(store, KEY_PC_EXPIRED),
+    readJsonArray(store, KEY_MANUAL_TELEGRAM_BACKLOG),
+    readTrackedMessages(store),
+    readJsonObject(store, KEY_MANUAL_DELETE_SMOKE_RESULT),
+  ]);
+
+  const androidQueue = dedupeById(androidQueueRaw);
+  const pcQueue = dedupeById(pcQueueRaw);
+  const androidExpired = dedupeById(androidExpiredRaw);
+  const pcExpired = dedupeById(pcExpiredRaw);
+  const backlog = dedupeById(backlogRaw);
 
   const androidStatus = {
     pendingSend: 0,

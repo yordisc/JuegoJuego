@@ -1,5 +1,30 @@
 # ✅ CAMBIOS REALIZADOS - Elementos Críticos Arreglados
 
+## 🔄 ACTUALIZACIÓN 2026-04-13
+
+Se aplicaron mejoras adicionales de concurrencia, mantenimiento y operación:
+
+1. **Lock de estado PC en consumidor**
+   - `check-pc` ahora usa `pc_state_lock`.
+
+2. **Coordinación de locks en clean-expired**
+   - `clean-expired` opera bajo lock Android + lock PC para evitar carreras cruzadas.
+
+3. **Cron mensual escalonado**
+   - Las manual functions ya no corren todas al mismo minuto; se distribuyen cada 10 minutos.
+
+4. **Logging compacto en producción**
+   - Nuevo control por `FUNCTION_LOG_LEVEL` (`debug` / `compact`).
+
+5. **Refactor de status alerts**
+   - Se centralizó envío + borrado en `utils/status-alert.js`.
+
+6. **Snapshot más rápido**
+   - `getMaintenanceSnapshot` usa lecturas paralelas (`Promise.all`).
+
+7. **Cobertura de tests ampliada**
+   - Se agregaron tests de regresión para `clean-duplicates` handler (Android, PC y mixto).
+
 ## 📋 RESUMEN DE CORRECCIONES
 
 Aplicados **2 cambios críticos** para resolver problemas de rendimiento en Netlify.
@@ -9,11 +34,13 @@ Aplicados **2 cambios críticos** para resolver problemas de rendimiento en Netl
 ## 🔴 CAMBIO #1: TTL Lock reducido de 90s → 5s
 
 ### ¿Por qué?
+
 - **Problema**: TTL de 90 segundos pero Netlify Functions tienen timeout de 10 segundos
 - **Impacto**: Si función tardaba > 10s, lock no se liberaba y siguiente ejecución fallaba
 - **Solución**: Reducir TTL a 5s para garantizar liberación antes del timeout
 
 ### Archivos modificados (7 lugares):
+
 ```
 ✅ netlify/functions/check-android.js
 ✅ netlify/functions/verify-android-publications.js
@@ -25,19 +52,21 @@ Aplicados **2 cambios críticos** para resolver problemas de rendimiento en Netl
 ```
 
 ### Cambios en parámetros:
+
 ```javascript
 // ANTES
-ttlMs: 90 * 1000      // 90 segundos ❌
-retries: 20           // Muchos reintentos
-retryDelayMs: 1000    // 1 segundo de espera
+ttlMs: 90 * 1000; // 90 segundos ❌
+retries: 20; // Muchos reintentos
+retryDelayMs: 1000; // 1 segundo de espera
 
 // AHORA ✅
-ttlMs: 5 * 1000       // 5 segundos
-retries: 5            // Menos reintentos, más eficiente
-retryDelayMs: 500     // 500ms de espera
+ttlMs: 5 * 1000; // 5 segundos
+retries: 5; // Menos reintentos, más eficiente
+retryDelayMs: 500; // 500ms de espera
 ```
 
 ### Ratio de éxito esperado:
+
 ```
 Con 5 reintentos × 500ms entre intentos:
 Tiempo máximo para adquirir lock: 5 × 500 = 2.5 segundos
@@ -50,26 +79,30 @@ Total: < 7.5 segundos (dentro del límite de 10s de Netlify) ✅
 ## 🟠 CAMBIO #2: Verificaciones aumentadas de 25 → 50
 
 ### ¿Por qué?
+
 - **Problema**: Solo verifica 25 mensajes por ejecución
 - **Impacto**: Con 300 juegos en memoria, tarda 12 horas verificar todos
 - **Impacto**: Mensajes borrados en Telegram no se reenvían rápido
 - **Solución**: Aumentar a 50 (cada verificación toma < 100ms)
 
 ### Archivos modificados (1 lugar):
+
 ```
 ✅ services/android-deals.js (línea 564)
 ```
 
 ### Cambio:
+
 ```javascript
 // ANTES
-readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 25)  // ❌
+readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 25); // ❌
 
 // AHORA
-readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 50)  // ✅
+readPositiveIntEnv("ANDROID_MAX_EXISTENCE_CHECK_PER_RUN", 50); // ✅
 ```
 
 ### Impacto en cobertura:
+
 ```
 Con 300 juegos:
 - ANTES: 300 ÷ 25 = 12 horas para verificar todos
@@ -105,6 +138,7 @@ grep -n "90 \* 1000" netlify/functions/*.js scripts/*.js
 ## 🧪 TESTS RECOMENDADOS
 
 ### Test 1: Verificar configuración correcta
+
 ```bash
 npm test -- --testNamePattern="lock"
 npm test -- --testNamePattern="existence"
@@ -113,6 +147,7 @@ npm test -- --testNamePattern="existence"
 **Resultado esperado**: Tests deben pasar sin cambios
 
 ### Test 2: Ejecutar suite completa
+
 ```bash
 npm test
 ```
@@ -124,6 +159,7 @@ npm test
 ## 🚀 PRÓXIMOS PASOS
 
 ### INMEDIATO (antes de deploy):
+
 ```
 [ ] Ejecutar tests localmente
 [ ] Revisar cambios con git diff
@@ -131,6 +167,7 @@ npm test
 ```
 
 ### DEPLOY:
+
 ```
 [ ] Push a main
 [ ] Netlify automáticamente deploy
@@ -140,6 +177,7 @@ npm test
 ### VALIDACIÓN POST-DEPLOY:
 
 #### Hora 0-1: Verificar Lock
+
 ```bash
 # En logs de Netlify Functions:
 "🔌 [DEBUG 2/4] Conectando a Netlify Blobs..."
@@ -150,6 +188,7 @@ npm test
 ```
 
 #### Hora 1-6: Verificar Verificaciones
+
 ```bash
 # En logs de Netlify Functions:
 "[metrics] {\"verified_count\": 45-50}"
@@ -160,6 +199,7 @@ npm test
 ```
 
 #### Día 1: Verificar en Telegram
+
 ```bash
 # Revisar que:
 1. Hay mensajes nuevos cada 30 minutos
@@ -224,6 +264,7 @@ DESPUÉS ✅:
 ### Sobre el TTL
 
 La reducción de 90s a 5s **no afecta** el funcionamiento normal porque:
+
 - Si ejecución falla: Lock se libera en 5s (mejor!)
 - Si ejecución tarda 3s: Lock se mantiene (suficiente)
 - Si ejecución tarda > 5s: Otra ejecución puede intentar (mejor!)
@@ -231,6 +272,7 @@ La reducción de 90s a 5s **no afecta** el funcionamiento normal porque:
 ### Sobre las verificaciones
 
 El aumento de 25 a 50 **no afecta** negativamente porque:
+
 - Cada verificación toma < 100ms (muy rápido)
 - 50 × 100ms = 5 segundos máximo
 - Otros procesos usan < 5 segundos
@@ -255,11 +297,11 @@ El aumento de 25 a 50 **no afecta** negativamente porque:
 
 Si durante el deploy ves:
 
-| Error | Causa | Fix |
-|-------|-------|-----|
-| `lock timeout` | Muchas ejecuciones simultáneas | Aumentar `retries` a 10 |
-| `verified_count: 0` | No hay items o error en retrieving | Revisar logs de Telegram |
-| Tiempo > 10s | Otros procesos dentro consumiendo TODO | Reducir `max_publish` a 10 |
+| Error               | Causa                                  | Fix                        |
+| ------------------- | -------------------------------------- | -------------------------- |
+| `lock timeout`      | Muchas ejecuciones simultáneas         | Aumentar `retries` a 10    |
+| `verified_count: 0` | No hay items o error en retrieving     | Revisar logs de Telegram   |
+| Tiempo > 10s        | Otros procesos dentro consumiendo TODO | Reducir `max_publish` a 10 |
 
 ---
 

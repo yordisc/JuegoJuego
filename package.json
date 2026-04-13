@@ -4,7 +4,7 @@
   "description": "",
   "main": "test-bot.js",
   "scripts": {
-    "test": "node --test",
+    "test": "bash -lc 'set -o pipefail; node --test 2>&1 | tee test-results.log'",
     "produce:android": "node scripts/github-android.js",
     "produce:android:rss": "node scripts/github-android-rss.js",
     "produce:android:rss:no-cleanup": "ANDROID_RSS_SKIP_CLEANUP=1 node scripts/github-android-rss.js",

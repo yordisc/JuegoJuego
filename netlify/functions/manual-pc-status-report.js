@@ -11,7 +11,7 @@ const {
   shouldAlertPCStatus,
   buildPCStatusAlertText,
 } = require("../../services/pc-status-report");
-const { requestWithRetry } = require("../../utils/telegram");
+const { sendStatusAlertAndDelete } = require("../../utils/status-alert");
 
 function isAuthorized(event) {
   const requiredKey = process.env.MANUAL_FUNCTION_KEY;
@@ -54,32 +54,10 @@ function isAlertEnabled(env = process.env) {
 
 async function sendStatusAlert(text) {
   const chatId = process.env.PC_STATUS_ALERT_CHAT_ID || process.env.CHANNEL_ID || "";
-
-  if (!chatId) {
-    return { sent: false, reason: "missing_chat_id" };
-  }
-
-  if (!process.env.TELEGRAM_TOKEN) {
-    return { sent: false, reason: "missing_telegram_token" };
-  }
-
-  const telegramBase = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
-  const response = await requestWithRetry(`${telegramBase}/sendMessage`, {
-    chat_id: chatId,
-    text,
-    disable_web_page_preview: true,
+  return sendStatusAlertAndDelete(text, {
+    chatId,
+    telegramToken: process.env.TELEGRAM_TOKEN,
   });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => `HTTP ${response.status}`);
-    return {
-      sent: false,
-      reason: `telegram_http_${response.status}`,
-      error: errText,
-    };
-  }
-
-  return { sent: true };
 }
 
 exports.handler = async (event) => {

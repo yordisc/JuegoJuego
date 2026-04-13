@@ -61,21 +61,21 @@
 
 # Manual functions (invocables vía HTTP)
 [functions.manual-android-status-report]
-  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
+  # Ejecutar 1 vez al mes el 1er dia a las 00:00 UTC
   schedule = "0 0 1 * *"
 
 [functions.manual-clean-memory]
-  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
-  schedule = "0 0 1 * *"
+  # Ejecutar 1 vez al mes el 1er dia a las 00:10 UTC
+  schedule = "10 0 1 * *"
 
 [functions.manual-clean-telegram]
-  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
-  schedule = "0 0 1 * *"
+  # Ejecutar 1 vez al mes el 1er dia a las 00:20 UTC
+  schedule = "20 0 1 * *"
 
 [functions.manual-delete-smoke]
-  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
-  schedule = "0 0 1 * *"
+  # Ejecutar 1 vez al mes el 1er dia a las 00:30 UTC
+  schedule = "30 0 1 * *"
 
 [functions.manual-pc-status-report]
-  # Ejecutar 1 vez al mes el 1er día a las 00:00 UTC
-  schedule = "0 0 1 * *"
+  # Ejecutar 1 vez al mes el 1er dia a las 00:40 UTC
+  schedule = "40 0 1 * *"

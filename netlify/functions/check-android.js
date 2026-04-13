@@ -17,42 +17,53 @@ function parsePositiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function isDebugLogsEnabled(env = process.env) {
+  const fallback = env.NODE_ENV === "production" ? "compact" : "debug";
+  const raw = String(env.FUNCTION_LOG_LEVEL || fallback).trim().toLowerCase();
+  return raw === "debug";
+}
+
 exports.handler = async (event, context) => {
+  const debug = isDebugLogsEnabled();
   console.log("========================================");
-  console.log("🚀 INICIANDO CHECK-ANDROID (DEBUG MODE)");
+  console.log(`🚀 INICIANDO CHECK-ANDROID (${debug ? "DEBUG" : "COMPACT"} MODE)`);
   console.log("========================================");
 
   try {
     // --- PASO 1: VERIFICACIÓN DE ENTORNO ---
-    console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    if (debug) {
+      console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    }
     const report = getBlobCredentialReport(process.env);
     const siteId = report.siteID;
     const apiToken = report.token;
 
-    console.log(
-      `   - NETLIFY_SITE_ID: ${
-        siteId
-          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
-          : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - NETLIFY_API_TOKEN: ${
-        apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - TELEGRAM_TOKEN: ${
-        process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - CHANNEL_ID: ${
-        process.env.CHANNEL_ID
-          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
-          : "❌ NO DEFINIDO"
-      }`
-    );
+    if (debug) {
+      console.log(
+        `   - NETLIFY_SITE_ID: ${
+          siteId
+            ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+            : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - NETLIFY_API_TOKEN: ${
+          apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - TELEGRAM_TOKEN: ${
+          process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - CHANNEL_ID: ${
+          process.env.CHANNEL_ID
+            ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+            : "❌ NO DEFINIDO"
+        }`
+      );
+    }
 
     if (report.issues.length > 0) {
       console.error("   - Credenciales Blobs invalidas:");
@@ -62,7 +73,9 @@ exports.handler = async (event, context) => {
     }
 
     // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
-    console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    if (debug) {
+      console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    }
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
     await withBlobLock(
       store,
@@ -78,20 +91,30 @@ exports.handler = async (event, context) => {
       },
       async () => {
         const publishedGames = await getPublishedGamesList(store);
-        console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
+        if (debug) {
+          console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
+        }
 
         // --- PASO 3: LÓGICA DE NEGOCIO ---
-        console.log("📡 [DEBUG 3/4] Procesando solo android_queue...");
+        if (debug) {
+          console.log("📡 [DEBUG 3/4] Procesando solo android_queue...");
+        }
         await checkAndroidDeals(store, publishedGames, {
           processQueue: true,
           processExpired: false,
         });
-        console.log("   - Cola Android procesada (publicaciones).");
+        if (debug) {
+          console.log("   - Cola Android procesada (publicaciones).");
+        }
 
         // --- PASO 4: GUARDADO DE ESTADO ---
-        console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
+        if (debug) {
+          console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
+        }
         await savePublishedGamesList(store, publishedGames, "android");
-        console.log("   - Memoria actualizada exitosamente.");
+        if (debug) {
+          console.log("   - Memoria actualizada exitosamente.");
+        }
       }
     );
 

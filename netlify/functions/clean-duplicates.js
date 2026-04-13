@@ -19,6 +19,12 @@ function isValidMessageId(value) {
   return Number.isInteger(value) && value > 0;
 }
 
+function isDebugLogsEnabled(env = process.env) {
+  const fallback = env.NODE_ENV === "production" ? "compact" : "debug";
+  const raw = String(env.FUNCTION_LOG_LEVEL || fallback).trim().toLowerCase();
+  return raw === "debug";
+}
+
 function normalizeTrackedEntry(entry) {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -38,6 +44,43 @@ function normalizeTrackedEntry(entry) {
   const platformRaw =
     typeof entry.platform === "string" ? entry.platform.trim().toLowerCase() : "";
   const platform = platformRaw === "pc" ? "pc" : platformRaw === "android" ? "android" : null;
+  const publishedAt = Number.isInteger(entry.publishedAt) ? entry.publishedAt : Date.now();
+  const title =
+    typeof entry.title === "string" && entry.title.trim()
+      ? entry.title.trim()
+      : null;
+  const titleMatch =
+    typeof entry.titleMatch === "string" && entry.titleMatch.trim()
+      ? entry.titleMatch.trim()
+      : null;
+  const chatId =
+    entry.chatId != null && String(entry.chatId).trim()
+      ? String(entry.chatId).trim()
+      : null;
+
+  if (!id || !isValidMessageId(messageId)) {
+    return null;
+  }
+
+  return { id, messageId, platform, publishedAt, title, titleMatch, chatId };
+}
+
+function normalizePublishedEntry(entry, platform) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const id =
+    entry.id == null
+      ? ""
+      : typeof entry.id === "string"
+        ? entry.id.trim()
+        : String(entry.id).trim();
+  const messageId =
+    Number.isInteger(entry.messageId) ||
+    (typeof entry.messageId === "string" && /^\d+$/.test(entry.messageId))
+      ? Number(entry.messageId)
+      : null;
   const publishedAt = Number.isInteger(entry.publishedAt) ? entry.publishedAt : Date.now();
   const title =
     typeof entry.title === "string" && entry.title.trim()
@@ -79,6 +122,33 @@ function dedupeTrackedByMessageId(tracked = []) {
   return result;
 }
 
+function mergeTrackedAndPublished(tracked = [], androidGames = [], pcGames = []) {
+  const merged = [];
+
+  for (const item of tracked) {
+    const parsed = normalizeTrackedEntry(item);
+    if (parsed && (parsed.platform === "android" || parsed.platform === "pc")) {
+      merged.push(parsed);
+    }
+  }
+
+  for (const item of androidGames) {
+    const parsed = normalizePublishedEntry(item, "android");
+    if (parsed) {
+      merged.push(parsed);
+    }
+  }
+
+  for (const item of pcGames) {
+    const parsed = normalizePublishedEntry(item, "pc");
+    if (parsed) {
+      merged.push(parsed);
+    }
+  }
+
+  return dedupeTrackedByMessageId(merged);
+}
+
 function buildPublishedStateFromTracked(tracked = [], platform) {
   const filtered = tracked.filter(
     (item) => item && item.platform === platform && item.id && isValidMessageId(item.messageId)
@@ -100,41 +170,46 @@ function buildPublishedStateFromTracked(tracked = [], platform) {
 }
 
 exports.handler = async (event, context) => {
+  const debug = isDebugLogsEnabled();
   console.log("========================================");
-  console.log("🧹 INICIANDO CLEAN-DUPLICATES (DEBUG MODE)");
+  console.log(`🧹 INICIANDO CLEAN-DUPLICATES (${debug ? "DEBUG" : "COMPACT"} MODE)`);
   console.log("========================================");
 
   try {
     // --- PASO 1: VERIFICACIÓN DE ENTORNO ---
-    console.log("🔍 [DEBUG 1/5] Verificando Variables de Entorno:");
+    if (debug) {
+      console.log("🔍 [DEBUG 1/5] Verificando Variables de Entorno:");
+    }
     const report = getBlobCredentialReport(process.env);
     const siteId = report.siteID;
     const apiToken = report.token;
 
-    console.log(
-      `   - NETLIFY_SITE_ID: ${
-        siteId
-          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
-          : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - NETLIFY_API_TOKEN: ${
-        apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - TELEGRAM_TOKEN: ${
-        process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - CHANNEL_ID: ${
-        process.env.CHANNEL_ID
-          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
-          : "❌ NO DEFINIDO"
-      }`
-    );
+    if (debug) {
+      console.log(
+        `   - NETLIFY_SITE_ID: ${
+          siteId
+            ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+            : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - NETLIFY_API_TOKEN: ${
+          apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - TELEGRAM_TOKEN: ${
+          process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - CHANNEL_ID: ${
+          process.env.CHANNEL_ID
+            ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+            : "❌ NO DEFINIDO"
+        }`
+      );
+    }
 
     if (report.issues.length > 0) {
       console.error("   - Credenciales Blobs invalidas:");
@@ -144,30 +219,39 @@ exports.handler = async (event, context) => {
     }
 
     // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
-    console.log("🔌 [DEBUG 2/5] Conectando a Netlify Blobs...");
+    if (debug) {
+      console.log("🔌 [DEBUG 2/5] Conectando a Netlify Blobs...");
+    }
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
 
     // --- PASO 3: CARGAR JUEGOS PUBLICADOS ---
-    console.log("📖 [DEBUG 3/5] Cargando mensajes publicados...");
+    if (debug) {
+      console.log("📖 [DEBUG 3/5] Cargando mensajes publicados...");
+    }
     const androidGames = await getPublishedGamesList(store, "android");
     const pcGames = await getPublishedGamesList(store, "pc");
     const trackedMessages = await readTrackedMessages(store);
 
-    const trackedAndroid = trackedMessages
-      .map((entry) => normalizeTrackedEntry(entry))
-      .filter((entry) => entry && entry.platform === "android");
-    const trackedPc = trackedMessages
-      .map((entry) => normalizeTrackedEntry(entry))
-      .filter((entry) => entry && entry.platform === "pc");
-
-    console.log(`   - Android: ${androidGames.length} mensajes en memoria`);
-    console.log(`   - PC: ${pcGames.length} mensajes en memoria`);
-    console.log(
-      `   - Tracked Android: ${trackedAndroid.length} | Tracked PC: ${trackedPc.length}`
+    const mergedTracked = mergeTrackedAndPublished(
+      trackedMessages,
+      androidGames,
+      pcGames
     );
+    const trackedAndroid = mergedTracked.filter((entry) => entry.platform === "android");
+    const trackedPc = mergedTracked.filter((entry) => entry.platform === "pc");
+
+    if (debug) {
+      console.log(`   - Android: ${androidGames.length} mensajes en memoria`);
+      console.log(`   - PC: ${pcGames.length} mensajes en memoria`);
+      console.log(
+        `   - Tracked Android: ${trackedAndroid.length} | Tracked PC: ${trackedPc.length}`
+      );
+    }
 
     // --- PASO 4: LIMPIAR DUPLICADOS ---
-    console.log("🧹 [DEBUG 4/5] Ejecutando limpieza de duplicados...");
+    if (debug) {
+      console.log("🧹 [DEBUG 4/5] Ejecutando limpieza de duplicados...");
+    }
 
     console.log("   📱 Limpiando Android...");
     const androidResult = await cleanDuplicates(trackedAndroid);
@@ -184,7 +268,9 @@ exports.handler = async (event, context) => {
     const syncedPcGames = buildPublishedStateFromTracked(remainingTracked, "pc");
 
     // --- PASO 5: GUARDAR ESTADO ACTUALIZADO ---
-    console.log("💾 [DEBUG 5/5] Guardando estado actualizado en Blobs...");
+    if (debug) {
+      console.log("💾 [DEBUG 5/5] Guardando estado actualizado en Blobs...");
+    }
 
     await savePublishedGamesList(store, syncedAndroidGames, "android");
     console.log(`   ✅ Android: ${syncedAndroidGames.length} mensajes guardados`);

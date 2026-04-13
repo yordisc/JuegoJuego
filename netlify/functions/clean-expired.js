@@ -24,6 +24,12 @@ function parsePositiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function isDebugLogsEnabled(env = process.env) {
+  const fallback = env.NODE_ENV === "production" ? "compact" : "debug";
+  const raw = String(env.FUNCTION_LOG_LEVEL || fallback).trim().toLowerCase();
+  return raw === "debug";
+}
+
 function normalizeId(value) {
   if (value == null) {
     return "";
@@ -152,40 +158,45 @@ async function fetchActivePcIds() {
 }
 
 exports.handler = async () => {
+  const debug = isDebugLogsEnabled();
   console.log("========================================");
-  console.log("🧹 INICIANDO CLEAN-EXPIRED (DEBUG MODE)");
+  console.log(`🧹 INICIANDO CLEAN-EXPIRED (${debug ? "DEBUG" : "COMPACT"} MODE)`);
   console.log("========================================");
 
   try {
-    console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    if (debug) {
+      console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    }
     const report = getBlobCredentialReport(process.env);
     const siteId = report.siteID;
     const apiToken = report.token;
 
-    console.log(
-      `   - NETLIFY_SITE_ID: ${
-        siteId
-          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
-          : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - NETLIFY_API_TOKEN: ${
-        apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - TELEGRAM_TOKEN: ${
-        process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - CHANNEL_ID: ${
-        process.env.CHANNEL_ID
-          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
-          : "❌ NO DEFINIDO"
-      }`
-    );
+    if (debug) {
+      console.log(
+        `   - NETLIFY_SITE_ID: ${
+          siteId
+            ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+            : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - NETLIFY_API_TOKEN: ${
+          apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - TELEGRAM_TOKEN: ${
+          process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - CHANNEL_ID: ${
+          process.env.CHANNEL_ID
+            ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+            : "❌ NO DEFINIDO"
+        }`
+      );
+    }
 
     if (report.issues.length > 0) {
       console.error("   - Credenciales Blobs invalidas:");
@@ -194,7 +205,9 @@ exports.handler = async () => {
       }
     }
 
-    console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    if (debug) {
+      console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    }
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
 
     await withBlobLock(
@@ -209,7 +222,16 @@ exports.handler = async () => {
           500
         ),
       },
-      async () => {
+      async () => withBlobLock(
+        store,
+        {
+          lockKey: process.env.PC_STATE_LOCK_KEY || "pc_state_lock",
+          owner: "clean-expired",
+          ttlMs: parsePositiveInt(process.env.PC_STATE_LOCK_TTL_MS, 90 * 1000),
+          retries: parsePositiveInt(process.env.PC_STATE_LOCK_RETRIES, 20),
+          retryDelayMs: parsePositiveInt(process.env.PC_STATE_LOCK_RETRY_DELAY_MS, 1000),
+        },
+        async () => {
         const androidPublished = await getPublishedGamesList(store, "android");
         const pcPublished = await getPublishedGamesList(store, "pc");
         const androidQueue = dedupeEntries(await readJsonArray(store, KEY_ANDROID_QUEUE));
@@ -245,16 +267,20 @@ exports.handler = async () => {
           await store.setJSON(KEY_PC_EXPIRED, mergedPcExpired);
         }
 
-        console.log(`   - Android memoria actual: ${androidPublished.length}`);
-        console.log(`   - PC memoria actual: ${pcPublished.length}`);
-        console.log(`   - Android expirados seguros: ${safeAndroidExpired.length}`);
-        console.log(
-          `   - PC expirados a limpiar: ${
-            pcCleanupEnabled ? String(mergedPcExpired.length) : "OMITIDO (modo seguro)"
-          }`
-        );
+        if (debug) {
+          console.log(`   - Android memoria actual: ${androidPublished.length}`);
+          console.log(`   - PC memoria actual: ${pcPublished.length}`);
+          console.log(`   - Android expirados seguros: ${safeAndroidExpired.length}`);
+          console.log(
+            `   - PC expirados a limpiar: ${
+              pcCleanupEnabled ? String(mergedPcExpired.length) : "OMITIDO (modo seguro)"
+            }`
+          );
+        }
 
-        console.log("📡 [DEBUG 3/4] Limpiando expirados de Android y PC...");
+        if (debug) {
+          console.log("📡 [DEBUG 3/4] Limpiando expirados de Android y PC...");
+        }
         await checkAndroidDeals(store, androidPublished, {
           processQueue: false,
           processExpired: true,
@@ -263,13 +289,20 @@ exports.handler = async () => {
           processQueue: false,
           processExpired: pcCleanupEnabled,
         });
-        console.log("   - Expirados procesados en ambas plataformas.");
+        if (debug) {
+          console.log("   - Expirados procesados en ambas plataformas.");
+        }
 
-        console.log("💾 [DEBUG 4/4] Guardando memoria actualizada...");
+        if (debug) {
+          console.log("💾 [DEBUG 4/4] Guardando memoria actualizada...");
+        }
         await savePublishedGamesList(store, androidPublished, "android");
         await savePublishedGamesList(store, pcPublished, "pc");
-        console.log("   - Memorias Android/PC actualizadas.");
+        if (debug) {
+          console.log("   - Memorias Android/PC actualizadas.");
+        }
       }
+      )
     );
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");

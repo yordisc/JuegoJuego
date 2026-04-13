@@ -74,6 +74,29 @@ CHANNEL_ID=@your_channel
 
 👉 **Más variables (opcionales y tuning)**: [docs/QUICK_START.md](docs/QUICK_START.md)
 
+### Variables recomendadas para status + autoborrado
+
+Para que los reportes de status se envien y se borren correctamente en produccion:
+
+```bash
+ANDROID_STATUS_ALERT_ENABLED=true
+PC_STATUS_ALERT_ENABLED=true
+
+# Opcional: si no se define, usa CHANNEL_ID
+ANDROID_STATUS_ALERT_CHAT_ID=@tu_canal
+PC_STATUS_ALERT_CHAT_ID=@tu_canal
+```
+
+Requisitos de Telegram (obligatorio):
+
+- El bot debe ser admin del canal.
+- Permisos minimos: enviar y borrar mensajes.
+- Si usas `*_STATUS_ALERT_CHAT_ID`, debe apuntar al mismo chat donde el bot tiene permisos de borrado.
+
+Tip de verificacion:
+
+- Ejecuta `manual-delete-smoke` para confirmar `sendMessage + deleteMessage` en el mismo chat.
+
 ### Watchlist Android por JSON (alertas Telegram)
 
 Si quieres alertas especiales cuando aparezcan juegos concretos en el scraper Android, edita [config/android-discount-watchlist.json](config/android-discount-watchlist.json):

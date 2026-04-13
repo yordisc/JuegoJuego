@@ -206,6 +206,39 @@ Pasos 1-8 iguales, pero OMITE EXPIRATION:
 - Continúa a paso 9 (Consumer)
 ```
 
+## Concurrencia y Coordinación de Estado
+
+El sistema usa locks distribuidos en Blobs para evitar corrupción de estado cuando hay ejecuciones concurrentes.
+
+- `android_state_lock`: protege operaciones Android (`check-android`, `clean-expired`, `verify-android-publications`).
+- `pc_state_lock`: protege operaciones PC (`check-pc`, `clean-expired`, `verify-pc-publications`).
+
+`clean-expired` adquiere ambos locks (Android y PC) para operar de forma consistente sobre memoria compartida de las dos plataformas.
+
+### Cron escalonado de funciones manuales
+
+Las funciones manuales mensuales se ejecutan en cascada para reducir picos de carga, colisiones de lock y bursts contra Telegram API:
+
+- `manual-android-status-report`: 00:00 UTC
+- `manual-clean-memory`: 00:10 UTC
+- `manual-clean-telegram`: 00:20 UTC
+- `manual-delete-smoke`: 00:30 UTC
+- `manual-pc-status-report`: 00:40 UTC
+
+## Logging Operativo
+
+Se soporta control de verbosidad con `FUNCTION_LOG_LEVEL`:
+
+- `debug`: logs detallados de entorno/pasos internos.
+- `compact`: logs operativos resumidos (recomendado en producción).
+
+Default:
+
+- Producción: `compact`
+- Desarrollo: `debug`
+
+Funciones con este comportamiento: `check-android`, `check-pc`, `clean-expired`, `clean-duplicates`.
+
 ## Dependencias Externas
 
 ### APIs Utilizadas

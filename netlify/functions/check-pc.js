@@ -10,39 +10,56 @@ const {
   createBlobStoreFromEnv,
   getBlobCredentialReport,
 } = require("../../utils/netlify-blobs");
+const { withBlobLock } = require("../../utils/blob-lock");
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function isDebugLogsEnabled(env = process.env) {
+  const fallback = env.NODE_ENV === "production" ? "compact" : "debug";
+  const raw = String(env.FUNCTION_LOG_LEVEL || fallback).trim().toLowerCase();
+  return raw === "debug";
+}
 
 exports.handler = async (event, context) => {
+  const debug = isDebugLogsEnabled();
   console.log("========================================");
-  console.log("🚀 INICIANDO CHECK-PC (DEBUG MODE)");
+  console.log(`🚀 INICIANDO CHECK-PC (${debug ? "DEBUG" : "COMPACT"} MODE)`);
   console.log("========================================");
 
   try {
     // --- PASO 1: VERIFICACIÓN DE ENTORNO ---
-    console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    if (debug) {
+      console.log("🔍 [DEBUG 1/4] Verificando Variables de Entorno:");
+    }
     const report = getBlobCredentialReport(process.env);
     const siteId = report.siteID;
     const apiToken = report.token;
 
-    console.log(
-      `   - NETLIFY_SITE_ID: ${siteId
-        ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
-        : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - NETLIFY_API_TOKEN: ${apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - TELEGRAM_TOKEN: ${process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
-      }`
-    );
-    console.log(
-      `   - CHANNEL_ID: ${process.env.CHANNEL_ID
-        ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
-        : "❌ NO DEFINIDO"
-      }`
-    );
+    if (debug) {
+      console.log(
+        `   - NETLIFY_SITE_ID: ${siteId
+          ? "✅ Presente (" + siteId.substring(0, 5) + "...)"
+          : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - NETLIFY_API_TOKEN: ${apiToken ? "✅ Presente (Oculto por seguridad)" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - TELEGRAM_TOKEN: ${process.env.TELEGRAM_TOKEN ? "✅ Presente" : "❌ NO DEFINIDO"
+        }`
+      );
+      console.log(
+        `   - CHANNEL_ID: ${process.env.CHANNEL_ID
+          ? "✅ Presente (" + process.env.CHANNEL_ID + ")"
+          : "❌ NO DEFINIDO"
+        }`
+      );
+    }
 
     if (report.issues.length > 0) {
       console.error("   - Credenciales Blobs invalidas:");
@@ -52,24 +69,45 @@ exports.handler = async (event, context) => {
     }
 
     // --- PASO 2: CONEXIÓN A BASE DE DATOS ---
-    console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    if (debug) {
+      console.log("🔌 [DEBUG 2/4] Conectando a Netlify Blobs...");
+    }
     const store = createBlobStoreFromEnv({ storeName: "memory-store" });
-    // 🟢 AÑADE "pc" AQUÍ
-    const publishedGames = await getPublishedGamesList(store, "pc");
-    console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
+    await withBlobLock(
+      store,
+      {
+        lockKey: process.env.PC_STATE_LOCK_KEY || "pc_state_lock",
+        owner: "consumer-pc",
+        ttlMs: parsePositiveInt(process.env.PC_STATE_LOCK_TTL_MS, 90 * 1000),
+        retries: parsePositiveInt(process.env.PC_STATE_LOCK_RETRIES, 20),
+        retryDelayMs: parsePositiveInt(process.env.PC_STATE_LOCK_RETRY_DELAY_MS, 1000),
+      },
+      async () => {
+        const publishedGames = await getPublishedGamesList(store, "pc");
+        if (debug) {
+          console.log(`   - Elementos en memoria actual: ${publishedGames.length}`);
+        }
 
-    // --- PASO 3: LÓGICA DE NEGOCIO ---
-    console.log("📡 [DEBUG 3/4] Procesando solo pc_queue...");
-    await checkPCGames(store, publishedGames, {
-      processQueue: true,
-      processExpired: false,
-    });
-    console.log("   - Cola PC procesada (publicaciones).");
+        if (debug) {
+          console.log("📡 [DEBUG 3/4] Procesando solo pc_queue...");
+        }
+        await checkPCGames(store, publishedGames, {
+          processQueue: true,
+          processExpired: false,
+        });
+        if (debug) {
+          console.log("   - Cola PC procesada (publicaciones).");
+        }
 
-    // --- PASO 4: GUARDADO DE ESTADO ---
-    console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
-    await savePublishedGamesList(store, publishedGames, "pc");
-    console.log("   - Memoria actualizada exitosamente.");
+        if (debug) {
+          console.log("💾 [DEBUG 4/4] Guardando nueva memoria en Blobs...");
+        }
+        await savePublishedGamesList(store, publishedGames, "pc");
+        if (debug) {
+          console.log("   - Memoria actualizada exitosamente.");
+        }
+      }
+    );
 
     console.log("✅ EJECUCIÓN EXITOSA COMPLETADA");
     console.log("========================================");

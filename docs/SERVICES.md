@@ -220,33 +220,37 @@ console.log(report);
 
 ### `utils/telegram.js`
 
-**Propósito**: API wrapper para enviar mensajes a Telegram
+**Propósito**: Wrapper resiliente para llamadas POST a Telegram Bot API
 
 **Funciones**:
 
-#### `sendTelegramMessage(chatId, message, options = {})`
+#### `requestWithRetry(url, payload, options = {})`
 
-Envía mensaje de texto simple o formateado
-
-```javascript
-await sendTelegramMessage(
-  process.env.CHANNEL_ID,
-  "🎮 Nuevo juego gratis: App Name",
-  { parse_mode: "HTML" },
-);
-```
-
-#### `sendTelegramPhoto(chatId, photoUrl, caption, options = {})`
-
-Envía foto con caption
+Ejecuta requests con reintento automatico ante `429` y `5xx`, respetando `retry_after` desde header o body cuando existe.
 
 ```javascript
-await sendTelegramPhoto(
-  process.env.CHANNEL_ID,
-  "https://play.google.com/store/apps/image.jpg",
-  "Game Name - Free Today!",
-);
+const response = await requestWithRetry(`${telegramBase}/sendMessage`, payload);
 ```
+
+---
+
+### `utils/status-alert.js`
+
+**Propósito**: Flujo común para alertas de status con envío + borrado inmediato.
+
+#### `sendStatusAlertAndDelete(text, { chatId, telegramToken })`
+
+1. Envía `sendMessage`.
+2. Extrae `message_id`.
+3. Ejecuta `deleteMessage` sobre el mismo chat.
+4. Retorna resultado estructurado (`sent`, `deleted`, `deleteReason`, etc).
+
+Se usa en:
+
+- `android-status-report`
+- `pc-status-report`
+- `manual-android-status-report`
+- `manual-pc-status-report`
 
 ---
 
@@ -311,3 +315,11 @@ Todos los servicios tienen funciones puras sin side effects:
 - Retornan resultados determinísticos
 
 Ver `test/` para ejemplos de testing.
+
+---
+
+## Notas de Optimización Recientes
+
+- `check-pc` ahora opera bajo `pc_state_lock` para evitar carreras de estado.
+- `clean-expired` coordina Android+PC con locks de ambas plataformas.
+- `getMaintenanceSnapshot` (manual-maintenance) paraleliza lecturas de Blobs con `Promise.all` para reducir latencia.
