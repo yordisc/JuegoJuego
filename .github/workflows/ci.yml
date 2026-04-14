@@ -24,7 +24,7 @@ jobs:
       - name: ⚙️ Configurar Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24" # Usamos una versión reciente que soporta fetch nativo
+          node-version: "22" # LTS estable para scraping y CI
           cache: "npm"
 
       # Paso C: Instalar las dependencias (el @netlify/blobs)

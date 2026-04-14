@@ -34,10 +34,8 @@
   "dependencies": {
     "@netlify/blobs": "^10.7.4",
     "dotenv": "^17.3.1",
+    "google-play-scraper": "^10.1.2",
     "node-fetch": "^3.3.2",
     "rss-parser": "^3.13.0"
-  },
-  "devDependencies": {
-    "google-play-scraper": "^10.1.2"
   }
 }

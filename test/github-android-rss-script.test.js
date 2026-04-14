@@ -200,4 +200,17 @@ test("Suite Script Android RSS (Actions)", async (t) => {
     assert.ok(summary.includes("candidatos=14"));
     assert.ok(summary.includes("maximo=4"));
   });
+
+  await t.test("aborta por kill-switch si feed activo es cero", async () => {
+    mockRssResult = {
+      feedItems: 0,
+      feedActiveIds: 0,
+      feedActiveIdList: [],
+      queueBefore: 0,
+      queueAfter: 0,
+      added: 0,
+    };
+
+    await assert.rejects(() => main(), /Kill switch activado/);
+  });
 });

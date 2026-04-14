@@ -37,8 +37,22 @@ test("clean-duplicates handler: usa publicados cuando tracked esta incompleto", 
   const savedTracked = [];
 
   const androidPublished = [
-    { id: "android.game", messageId: 10, publishedAt: 1000 },
-    { id: "android.game", messageId: 11, publishedAt: 2000 },
+    {
+      id: "android.game",
+      messageId: 10,
+      publishedAt: 1000,
+      title: "Android Game Old",
+      titleMatch: "android game old",
+      chatId: "@android_channel",
+    },
+    {
+      id: "android.game",
+      messageId: 11,
+      publishedAt: 2000,
+      title: "Android Game New",
+      titleMatch: "android game new",
+      chatId: "@android_channel",
+    },
   ];
 
   const mockedMemory = {
@@ -116,6 +130,10 @@ test("clean-duplicates handler: usa publicados cuando tracked esta incompleto", 
   assert.ok(savedAndroid);
   assert.strictEqual(savedAndroid.list.length, 1);
   assert.strictEqual(savedAndroid.list[0].messageId, 11);
+  assert.strictEqual(savedAndroid.list[0].title, "Android Game New");
+  assert.strictEqual(savedAndroid.list[0].titleMatch, "android game new");
+  assert.strictEqual(savedAndroid.list[0].chatId, "@android_channel");
+  assert.strictEqual(savedAndroid.list[0].platform, "android");
 });
 
 test("clean-duplicates handler: deduplica PC usando publicados cuando tracked no trae datos", async () => {
@@ -124,8 +142,22 @@ test("clean-duplicates handler: deduplica PC usando publicados cuando tracked no
   const savedTracked = [];
 
   const pcPublished = [
-    { id: "pc.game", messageId: 20, publishedAt: 1000 },
-    { id: "pc.game", messageId: 21, publishedAt: 2000 },
+    {
+      id: "pc.game",
+      messageId: 20,
+      publishedAt: 1000,
+      title: "PC Game Old",
+      titleMatch: "pc game old",
+      chatId: "@pc_channel",
+    },
+    {
+      id: "pc.game",
+      messageId: 21,
+      publishedAt: 2000,
+      title: "PC Game New",
+      titleMatch: "pc game new",
+      chatId: "@pc_channel",
+    },
   ];
 
   const mockedMemory = {
@@ -204,6 +236,10 @@ test("clean-duplicates handler: deduplica PC usando publicados cuando tracked no
   assert.ok(savedPc);
   assert.strictEqual(savedPc.list.length, 1);
   assert.strictEqual(savedPc.list[0].messageId, 21);
+  assert.strictEqual(savedPc.list[0].title, "PC Game New");
+  assert.strictEqual(savedPc.list[0].titleMatch, "pc game new");
+  assert.strictEqual(savedPc.list[0].chatId, "@pc_channel");
+  assert.strictEqual(savedPc.list[0].platform, "pc");
 });
 
 test("clean-duplicates handler: procesa Android y PC en la misma corrida sin mezclar plataformas", async () => {
@@ -212,12 +248,40 @@ test("clean-duplicates handler: procesa Android y PC en la misma corrida sin mez
   const savedTracked = [];
 
   const androidPublished = [
-    { id: "android.same", messageId: 30, publishedAt: 1000 },
-    { id: "android.same", messageId: 31, publishedAt: 2000 },
+    {
+      id: "android.same",
+      messageId: 30,
+      publishedAt: 1000,
+      title: "Android Same Old",
+      titleMatch: "android same old",
+      chatId: "@android",
+    },
+    {
+      id: "android.same",
+      messageId: 31,
+      publishedAt: 2000,
+      title: "Android Same New",
+      titleMatch: "android same new",
+      chatId: "@android",
+    },
   ];
   const pcPublished = [
-    { id: "pc.same", messageId: 40, publishedAt: 1000 },
-    { id: "pc.same", messageId: 41, publishedAt: 2000 },
+    {
+      id: "pc.same",
+      messageId: 40,
+      publishedAt: 1000,
+      title: "PC Same Old",
+      titleMatch: "pc same old",
+      chatId: "@pc",
+    },
+    {
+      id: "pc.same",
+      messageId: 41,
+      publishedAt: 2000,
+      title: "PC Same New",
+      titleMatch: "pc same new",
+      chatId: "@pc",
+    },
   ];
 
   const mockedMemory = {
@@ -305,6 +369,10 @@ test("clean-duplicates handler: procesa Android y PC en la misma corrida sin mez
   assert.ok(savedPc);
   assert.strictEqual(savedAndroid.list.length, 1);
   assert.strictEqual(savedAndroid.list[0].messageId, 31);
+  assert.strictEqual(savedAndroid.list[0].titleMatch, "android same new");
+  assert.strictEqual(savedAndroid.list[0].platform, "android");
   assert.strictEqual(savedPc.list.length, 1);
   assert.strictEqual(savedPc.list[0].messageId, 41);
+  assert.strictEqual(savedPc.list[0].titleMatch, "pc same new");
+  assert.strictEqual(savedPc.list[0].platform, "pc");
 });

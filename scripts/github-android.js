@@ -383,6 +383,14 @@ function inferSafeExpiredForProducer(
   );
   const normalizedPublished = normalizeList(publishedGames);
   const normalizedExistingExpired = dedupeExpiredEntries(existingExpired);
+  const activeCount = Array.isArray(activeDealIds) ? activeDealIds.length : 0;
+  const emptySourceKillSwitch = options.emptySourceKillSwitch !== false;
+
+  if (expirationEnabled && emptySourceKillSwitch && activeCount === 0) {
+    throw new Error(
+      "[producer-android] Kill switch activado: la fuente devolvio 0 juegos activos. Se aborta para evitar expiraciones en cascada."
+    );
+  }
 
   if (!expirationEnabled) {
     return {

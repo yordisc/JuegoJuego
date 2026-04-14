@@ -159,9 +159,7 @@ function buildPublishedStateFromTracked(tracked = [], platform) {
     const prev = bestByGameId.get(item.id);
     if (!prev || item.publishedAt >= prev.publishedAt) {
       bestByGameId.set(item.id, {
-        id: item.id,
-        messageId: item.messageId,
-        publishedAt: item.publishedAt,
+        ...item,
       });
     }
   }

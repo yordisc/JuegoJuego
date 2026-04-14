@@ -29,7 +29,7 @@ Bienvenido. Esta carpeta contiene toda la documentación del proyecto. Usa este 
 
 ### 📋 Para Mantenimiento / Cambios Recientes
 
-→ Lee [MAINTENANCE.md](operations/MAINTENANCE.md)
+→ Lee [CAMBIOS_REALIZADOS.md](CAMBIOS_REALIZADOS.md)
 
 ---
 
@@ -52,9 +52,9 @@ Bienvenido. Esta carpeta contiene toda la documentación del proyecto. Usa este 
 
 ### 🔧 Operación
 
-| Archivo                                                | Descripción                                |
-| ------------------------------------------------------ | ------------------------------------------ |
-| [operations/MAINTENANCE.md](operations/MAINTENANCE.md) | Cambios recientes, tareas de mantenimiento |
+| Archivo                                        | Descripción                                |
+| ---------------------------------------------- | ------------------------------------------ |
+| [CAMBIOS_REALIZADOS.md](CAMBIOS_REALIZADOS.md) | Cambios recientes, tareas de mantenimiento |
 
 ---
 
@@ -66,11 +66,10 @@ docs/
 ├─ ARCHITECTURE.md           → Explicación técnica
 ├─ QUICK_START.md            → Guía práctica
 ├─ TROUBLESHOOTING.md        → Solución de problemas
+├─ CAMBIOS_REALIZADOS.md     → Cambios y tareas
 ├─ ai-context/
 │  ├─ COMPLETE_GUIDE.md      → TODO para una IA
 │  └─ API_REFERENCE.md       → Referencia de funciones
-└─ operations/
-   └─ MAINTENANCE.md         → Cambios y tareas
 ```
 
 ---
@@ -120,10 +119,10 @@ Archivos eliminados o consolidados en esta reorganización:
 
 - `ANALISIS_FLUJO_ANDROID.md` → [ai-context/COMPLETE_GUIDE.md](ai-context/COMPLETE_GUIDE.md)
 - `DIAGRAMA_FLUJO_Y_RECOMENDACIONES.md` → [ARCHITECTURE.md](ARCHITECTURE.md)
-- `CAMBIOS_REALIZADOS.md` → [operations/MAINTENANCE.md](operations/MAINTENANCE.md)
+- `operations/MAINTENANCE.md` → [CAMBIOS_REALIZADOS.md](CAMBIOS_REALIZADOS.md)
 - `REPORTE_EJECUTIVO.md` → [ARCHITECTURE.md](ARCHITECTURE.md)
 - Otros archivos de análisis → consolidados en docs oficiales
 
 ---
 
-**Última actualización**: Apr 6, 2026
+**Última actualización**: Apr 14, 2026

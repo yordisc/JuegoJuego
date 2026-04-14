@@ -24,6 +24,8 @@ function createStore(initial = {}) {
 
 test("Suite PC Consumer", async (t) => {
   t.beforeEach(() => {
+    process.env.PC_EXPIRED_DELETE_DELAY_MS = "0";
+
     global.fetch = async (url) => {
       if (url.includes("sendMessage")) {
         return {
@@ -41,6 +43,7 @@ test("Suite PC Consumer", async (t) => {
   });
 
   t.afterEach(() => {
+    delete process.env.PC_EXPIRED_DELETE_DELAY_MS;
     global.fetch = originalFetch;
   });
 
@@ -136,6 +139,37 @@ test("Suite PC Consumer", async (t) => {
     assert.strictEqual(snapshot.pc_queue[0].id, "pc-retry");
   });
 
+  await t.test("Escapa caracteres conflictivos de Markdown en titulo y descripcion", async () => {
+    let sentBody = null;
+    global.fetch = async (url, opts) => {
+      if (url.includes("sendMessage")) {
+        sentBody = JSON.parse(opts.body || "{}");
+      }
+
+      return { ok: true, json: async () => ({ ok: true, result: { message_id: 333 } }) };
+    };
+
+    const store = createStore({
+      pc_queue: [
+        {
+          id: "pc-md-1",
+          title: "[Juego] Call of *Duty* _2_",
+          description: "Incluye [DLC] *VIP* _Pack_",
+          platforms: "PC_[Win]",
+          worth: "$19_*",
+          openGiveawayUrl: "https://example.com/game",
+        },
+      ],
+      pc_expired: [],
+    });
+
+    await checkPCGames(store, []);
+
+    assert.ok(sentBody);
+    assert.ok(sentBody.text.includes("\\[Juego\\] Call of \\*Duty\\* \\_2\\_"));
+    assert.ok(sentBody.text.includes("Incluye \\[DLC\\] \\*VIP\\* \\_Pack\\_"));
+  });
+
   await t.test("Modo solo expirados no publica pc_queue", async () => {
     const calledUrls = [];
     global.fetch = async (url) => {
@@ -197,6 +231,37 @@ test("Suite PC Consumer", async (t) => {
     assert.strictEqual(result.expiredCount, 1);
     assert.strictEqual(publishedGames.length, 0);
     assert.deepStrictEqual(snapshot.pc_expired, []);
+  });
+
+  await t.test("Elimina tracking paralelo cuando se borra un expirado", async () => {
+    const store = createStore({
+      pc_queue: [],
+      pc_expired: [{ id: "pc.cleanup", messageId: 700 }],
+      telegram_sent_messages: [
+        { id: "pc.cleanup", messageId: 700, platform: "pc", messageKind: "text", messageText: "x" },
+        { id: "pc.keep", messageId: 701, platform: "pc", messageKind: "text", messageText: "y" },
+      ],
+    });
+
+    const publishedGames = [{ id: "pc.cleanup", messageId: 700 }];
+    await checkPCGames(store, publishedGames, {
+      processQueue: false,
+      processExpired: true,
+    });
+
+    const snapshot = store.snapshot();
+    assert.strictEqual(snapshot.telegram_sent_messages.some((item) => item.messageId === 700), false);
+    assert.strictEqual(snapshot.telegram_sent_messages.some((item) => item.messageId === 701), true);
+  });
+
+  await t.test("Aborta cuando encuentra JSON invalido en memoria PC", async () => {
+    const store = {
+      get: async (key) => (key === "pc_queue" ? "<html>500</html>" : null),
+      setJSON: async () => {},
+      snapshot: () => ({}),
+    };
+
+    await assert.rejects(() => checkPCGames(store, []), /JSON invalido en pc_queue/);
   });
 
   await t.test("Reconciliacion verifica por tracking de id/titulo y republica pendientes", async () => {

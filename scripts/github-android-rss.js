@@ -188,10 +188,20 @@ async function main() {
         process.env.ANDROID_RSS_EXPIRATION_ENABLED,
         true
       );
+      const allowEmptySource = parseBoolEnv(
+        process.env.ANDROID_RSS_ALLOW_EMPTY_SOURCE,
+        false
+      );
       const skipCleanup = parseBoolEnv(
         process.env.ANDROID_RSS_SKIP_CLEANUP,
         false
       );
+
+      if (expirationEnabled && !allowEmptySource && rssResult.feedActiveIds === 0) {
+        throw new Error(
+          "[producer-android-rss-action] Kill switch activado: feedActiveIds=0. Se aborta para evitar expiraciones en cascada."
+        );
+      }
 
       const queue = dedupeEntries(await readJsonArray(store, KEY_ANDROID_QUEUE));
       const queueIds = new Set(queue.map((entry) => entry.id));

@@ -142,4 +142,23 @@ test("Suite Script Android Producer (expiracion segura)", async (t) => {
       ["com.retry.keep", "com.new.1", "com.new.2"]
     );
   });
+
+  await t.test("Activa kill-switch cuando la fuente devuelve 0 activos", () => {
+    const now = Date.now();
+    const publishedGames = [
+      { id: "com.old.one", messageId: 7, publishedAt: now - 48 * 60 * 60 * 1000 },
+    ];
+
+    assert.throws(
+      () =>
+        inferSafeExpiredForProducer(
+          publishedGames,
+          [],
+          [],
+          [],
+          { expirationEnabled: true }
+        ),
+      /Kill switch activado/
+    );
+  });
 });

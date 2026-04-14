@@ -19,6 +19,11 @@ function readPositiveIntEnv(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function readNonNegativeIntEnv(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function getPublishedGameId(entry) {
   if (typeof entry === "string") {
     return entry;
@@ -67,9 +72,18 @@ async function readJsonArray(store, key) {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
-    console.warn(`[pc-consumer] JSON invalido en ${key}, se reinicia a []`);
-    return [];
+    throw new Error(`[pc-consumer] JSON invalido en ${key}. Se aborta para evitar perdida de memoria.`, {
+      cause: err,
+    });
   }
+}
+
+function escapeTelegramMarkdown(value) {
+  return String(value || "").replace(/([_*\[\]()`])/g, "\\$1");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function writeQueue(store, key, data) {
@@ -185,10 +199,10 @@ function normalizeTrackedMap(trackedSent = []) {
 }
 
 function buildPcMessage(item) {
-  const title = item.title || item.id || "PC Game";
-  const platforms = item.platforms || "PC";
-  const worth = item.worth || "N/A";
-  const description = (item.description || "").slice(0, 100);
+  const title = escapeTelegramMarkdown(item.title || item.id || "PC Game");
+  const platforms = escapeTelegramMarkdown(item.platforms || "PC");
+  const worth = escapeTelegramMarkdown(item.worth || "N/A");
+  const description = escapeTelegramMarkdown((item.description || "").slice(0, 100));
   const url = item.openGiveawayUrl || item.open_giveaway_url || "";
 
   return (
@@ -304,6 +318,10 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
     process.env.PC_MAX_PUBLISH_PER_RUN,
     15
   );
+  const expiredDeleteDelayMs = readNonNegativeIntEnv(
+    process.env.PC_EXPIRED_DELETE_DELAY_MS,
+    150
+  );
 
   const queue = dedupeById(await readJsonArray(store, KEY_PC_QUEUE));
   const expiredQueue = dedupeById(await readJsonArray(store, KEY_PC_EXPIRED));
@@ -318,6 +336,7 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
   let deleteErrors = 0;
   const retryQueue = [];
   const retryExpiredQueue = [];
+  const removedTrackedMessageIds = new Set();
 
   if (processQueue) {
     for (let index = 0; index < queue.length; index += 1) {
@@ -427,6 +446,7 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
               console.info(
                 `[pc-consumer] Mensaje expirado no encontrado (${messageId}), se marca como resuelto.`
               );
+              removedTrackedMessageIds.add(messageId);
             } else {
               if (telegramResponse.status === 429) {
                 const retryNote =
@@ -446,6 +466,12 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
               retryExpiredQueue.push(item);
               continue;
             }
+          } else {
+            removedTrackedMessageIds.add(messageId);
+          }
+
+          if (expiredDeleteDelayMs > 0) {
+            await sleep(expiredDeleteDelayMs);
           }
         } catch (err) {
           console.error("[pc-consumer] Error de red eliminando expirado:", err.message);
@@ -470,6 +496,15 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
 
   if (processExpired) {
     await writeQueue(store, KEY_PC_EXPIRED, dedupeById(retryExpiredQueue));
+  }
+
+  if (removedTrackedMessageIds.size > 0) {
+    const latestTracked = await readTrackedMessages(store);
+    const nextTracked = latestTracked.filter((entry) => {
+      const trackedMessageId = getPublishedMessageId(entry);
+      return !Number.isInteger(trackedMessageId) || !removedTrackedMessageIds.has(trackedMessageId);
+    });
+    await saveTrackedMessages(store, nextTracked);
   }
 
   console.log(`[pc-consumer] Publicados: ${publishedCount} | Expirados: ${expiredCount}`);
@@ -498,6 +533,9 @@ async function reconcilePCPublications(store, publishedGames = [], options = {})
   const maxExistenceChecks = Number.isInteger(options.maxExistenceChecks)
     ? options.maxExistenceChecks
     : readPositiveIntEnv(process.env.PC_MAX_EXISTENCE_CHECK_PER_RUN, 25);
+  const existenceCheckConcurrency = Number.isInteger(options.existenceCheckConcurrency)
+    ? Math.max(1, options.existenceCheckConcurrency)
+    : readPositiveIntEnv(process.env.PC_EXISTENCE_CHECK_CONCURRENCY, 5);
 
   const trackedSent = await readTrackedMessages(store);
   const trackedMap = normalizeTrackedMap(trackedSent);
@@ -509,6 +547,9 @@ async function reconcilePCPublications(store, publishedGames = [], options = {})
   let existenceChecks = 0;
   let existenceMissing = 0;
   let existenceErrors = 0;
+
+  const trackedByIndex = new Map();
+  const probeTargets = [];
 
   for (let index = 0; index < publishedGames.length; index += 1) {
     const entry = publishedGames[index];
@@ -530,6 +571,42 @@ async function reconcilePCPublications(store, publishedGames = [], options = {})
     const trackedByTitle = titleMatch ? trackedMap.byTitle.get(titleMatch) || null : null;
     const tracked = trackedByMessage || trackedById || trackedByTitle;
 
+    if (!tracked) {
+      continue;
+    }
+
+    trackedByIndex.set(index, { id, entry, tracked, currentMessageId });
+    if (probeTargets.length < maxExistenceChecks) {
+      probeTargets.push({ index, tracked });
+    }
+  }
+
+  const probeByIndex = new Map();
+  for (let start = 0; start < probeTargets.length; start += existenceCheckConcurrency) {
+    const batch = probeTargets.slice(start, start + existenceCheckConcurrency);
+    const batchResults = await Promise.all(
+      batch.map(async ({ index, tracked }) => ({ index, probe: await probePcMessageExists(tracked) }))
+    );
+
+    for (const { index, probe } of batchResults) {
+      probeByIndex.set(index, probe);
+    }
+  }
+  existenceChecks = probeTargets.length;
+
+  for (let index = 0; index < publishedGames.length; index += 1) {
+    const entry = publishedGames[index];
+    const id = getPublishedGameId(entry);
+    if (!id) {
+      continue;
+    }
+
+    const trackedResolution = trackedByIndex.get(index) || null;
+    const tracked = trackedResolution ? trackedResolution.tracked : null;
+    const currentMessageId = trackedResolution
+      ? trackedResolution.currentMessageId
+      : getPublishedMessageId(entry);
+
     if (tracked) {
       const trackedMessageId = getPublishedMessageId(tracked);
       const trackedPublishedAt =
@@ -537,9 +614,8 @@ async function reconcilePCPublications(store, publishedGames = [], options = {})
           ? tracked.publishedAt
           : Date.now();
 
-      if (existenceChecks < maxExistenceChecks) {
-        existenceChecks += 1;
-        const probe = await probePcMessageExists(tracked);
+      if (probeByIndex.has(index)) {
+        const probe = probeByIndex.get(index);
         if (probe.status === "missing") {
           if (Number.isInteger(trackedMessageId)) {
             removedTrackedMessageIds.add(trackedMessageId);

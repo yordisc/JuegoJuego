@@ -1,6 +1,7 @@
 [functions]
   # Carpeta donde Netlify buscará tus scripts
   directory = "netlify/functions"
+  included_files = ["config/**"]
 
 # Microservicio 1: Scraper (Android)
 [functions.check-android]

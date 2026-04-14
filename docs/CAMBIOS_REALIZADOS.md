@@ -1,5 +1,62 @@
 # ✅ CAMBIOS REALIZADOS - Elementos Críticos Arreglados
 
+## 🔄 ACTUALIZACIÓN 2026-04-14 (Aplicación de AUDITORIA)
+
+Se implementaron correcciones críticas y de estabilidad derivadas de la auditoría:
+
+1. **`clean-duplicates` preserva metadatos completos**
+   - [netlify/functions/clean-duplicates.js](netlify/functions/clean-duplicates.js)
+   - Al reconstruir estado publicado se mantiene el objeto completo (`title`, `titleMatch`, `chatId`, etc.) en lugar de truncarlo.
+
+2. **Parseo JSON estricto en consumidor PC**
+   - [services/pc-games.js](services/pc-games.js)
+   - Si hay JSON inválido en Blobs, ahora se lanza error y se aborta la corrida para evitar sobreescritura de memoria con `[]`.
+
+3. **Kill-switch por fuente vacía en productores Android**
+   - [scripts/github-android.js](scripts/github-android.js)
+   - [scripts/github-android-rss.js](scripts/github-android-rss.js)
+   - Si la fuente devuelve 0 juegos activos, se aborta para evitar expiraciones en cascada.
+
+4. **Throttling en borrado de expirados PC**
+   - [services/pc-games.js](services/pc-games.js)
+   - Se añadió pausa configurable (`PC_EXPIRED_DELETE_DELAY_MS`, por defecto 150ms) entre borrados a Telegram.
+
+5. **Escape de Markdown en mensajes PC**
+   - [services/pc-games.js](services/pc-games.js)
+   - Se escapan caracteres conflictivos en `title`, `description`, `platforms` y `worth` antes de enviar a Telegram.
+
+6. **Purge de `trackedMessages` al expirar en PC**
+   - [services/pc-games.js](services/pc-games.js)
+   - Tras borrar o resolver `not found`, se elimina el `messageId` correspondiente de `telegram_sent_messages`.
+
+7. **Reconciliación PC con sondeos concurrentes por lotes**
+   - [services/pc-games.js](services/pc-games.js)
+   - Las verificaciones de existencia se ejecutan en batches (`PC_EXISTENCE_CHECK_CONCURRENCY`, default 5).
+
+8. **Empaquetado explícito de `config/` en Netlify**
+   - [netlify.toml](netlify.toml)
+   - Se agregó `included_files = ["config/**"]`.
+
+9. **Workflows en Node LTS**
+   - [.github/workflows/ci.yml](.github/workflows/ci.yml)
+   - [.github/workflows/scraper.yml](.github/workflows/scraper.yml)
+   - [.github/workflows/scraper-android-rss.yml](.github/workflows/scraper-android-rss.yml)
+   - [.github/workflows/scraper-android-expired.yml](.github/workflows/scraper-android-expired.yml)
+   - [.github/workflows/scraper-pc.yml](.github/workflows/scraper-pc.yml)
+   - Cambio de `node-version` a `22`.
+
+10. **`google-play-scraper` movido a runtime dependencies**
+    - [package.json](package.json)
+    - Se movió de `devDependencies` a `dependencies`.
+
+11. **Cobertura de tests ampliada**
+    - [test/clean-duplicates-handler.test.js](test/clean-duplicates-handler.test.js)
+    - [test/pc-games.test.js](test/pc-games.test.js)
+    - [test/github-android-script.test.js](test/github-android-script.test.js)
+    - [test/github-android-rss-script.test.js](test/github-android-rss-script.test.js)
+
+---
+
 ## 🔄 ACTUALIZACIÓN 2026-04-13
 
 Se aplicaron mejoras adicionales de concurrencia, mantenimiento y operación:
