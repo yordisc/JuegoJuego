@@ -197,9 +197,15 @@ async function main() {
         false
       );
 
-      if (expirationEnabled && !allowEmptySource && rssResult.feedActiveIds === 0) {
+      const shouldAbortByKillSwitch =
+        expirationEnabled
+        && !allowEmptySource
+        && rssResult.feedActiveIds === 0
+        && (rssResult.feedItems === 0 || rssResult.detailsRequests === 0);
+
+      if (shouldAbortByKillSwitch) {
         throw new Error(
-          "[producer-android-rss-action] Kill switch activado: feedActiveIds=0. Se aborta para evitar expiraciones en cascada."
+          "[producer-android-rss-action] Kill switch activado: feedActiveIds=0 sin evidencia suficiente de fuente valida (feedItems=0 o detailsRequests=0). Se aborta para evitar expiraciones en cascada."
         );
       }
 

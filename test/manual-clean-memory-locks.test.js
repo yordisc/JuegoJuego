@@ -169,7 +169,7 @@ test("manual-clean-telegram: Lock behavior", async (t) => {
         lockKey: "android_state_lock",
         owner: "other-function",
         ttlMs: 1000,
-        retries: 2,
+        retries: 4,
         retryDelayMs: 50,
       },
       async () => {

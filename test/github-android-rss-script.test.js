@@ -213,4 +213,19 @@ test("Suite Script Android RSS (Actions)", async (t) => {
 
     await assert.rejects(() => main(), /Kill switch activado/);
   });
+
+  await t.test("no aborta si hubo lectura/validacion del feed pero no hay juegos gratis", async () => {
+    mockRssResult = {
+      feedItems: 25,
+      feedActiveIds: 0,
+      feedActiveIdList: [],
+      queueBefore: 0,
+      queueAfter: 0,
+      added: 0,
+      detailsRequests: 24,
+      detailsFailures: 0,
+    };
+
+    await assert.doesNotReject(() => main());
+  });
 });
