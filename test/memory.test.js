@@ -30,17 +30,14 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
     Module._load = originalLoad;
   });
 
-  await t.test(
-    "Caso 1: Debe devolver [] si no hay datos en nube",
-    async () => {
-      const mockStoreEmpty = {
-        get: async () => null,
-      };
+  await t.test("Caso 1: Debe devolver [] si no hay datos en nube", async () => {
+    const mockStoreEmpty = {
+      get: async () => null,
+    };
 
-      const result = await getPublishedGamesList(mockStoreEmpty);
-      assert.deepStrictEqual(result, []);
-    }
-  );
+    const result = await getPublishedGamesList(mockStoreEmpty);
+    assert.deepStrictEqual(result, []);
+  });
 
   await t.test(
     "Caso 2: Debe normalizar strings heredados a objetos",
@@ -60,6 +57,7 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
           status: "pending_send",
           title: null,
           titleMatch: "com game one",
+          chatId: null,
         },
         {
           id: "com.game.two",
@@ -68,73 +66,71 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
           status: "pending_send",
           title: null,
           titleMatch: "com game two",
+          chatId: null,
         },
       ]);
-    }
+    },
   );
 
-  await t.test(
-    "Caso 3: Debe guardar en formato normalizado",
-    async () => {
-      const datosPrueba = ["juego_A", "juego_B", "juego_C"];
+  await t.test("Caso 3: Debe guardar en formato normalizado", async () => {
+    const datosPrueba = ["juego_A", "juego_B", "juego_C"];
 
-      let llaveGuardada = "";
-      let datosQueSeIntentanGuardar = [];
+    let llaveGuardada = "";
+    let datosQueSeIntentanGuardar = [];
 
-      const mockStore = {
-        setJSON: async (key, data) => {
-          llaveGuardada = key;
-          datosQueSeIntentanGuardar = data;
-        },
-      };
+    const mockStore = {
+      setJSON: async (key, data) => {
+        llaveGuardada = key;
+        datosQueSeIntentanGuardar = data;
+      },
+    };
 
-      await savePublishedGamesList(mockStore, datosPrueba);
+    await savePublishedGamesList(mockStore, datosPrueba);
 
-      assert.strictEqual(llaveGuardada, "published_games_android");
-      assert.deepStrictEqual(datosQueSeIntentanGuardar, [
-        {
-          id: "juego_A",
-          messageId: null,
-          publishedAt: null,
-          status: "pending_send",
-          title: null,
-          titleMatch: "juego a",
-        },
-        {
-          id: "juego_B",
-          messageId: null,
-          publishedAt: null,
-          status: "pending_send",
-          title: null,
-          titleMatch: "juego b",
-        },
-        {
-          id: "juego_C",
-          messageId: null,
-          publishedAt: null,
-          status: "pending_send",
-          title: null,
-          titleMatch: "juego c",
-        },
-      ]);
-    }
-  );
+    assert.strictEqual(llaveGuardada, "published_games_android");
+    assert.deepStrictEqual(datosQueSeIntentanGuardar, [
+      {
+        id: "juego_A",
+        messageId: null,
+        publishedAt: null,
+        status: "pending_send",
+        title: null,
+        titleMatch: "juego a",
+        chatId: null,
+      },
+      {
+        id: "juego_B",
+        messageId: null,
+        publishedAt: null,
+        status: "pending_send",
+        title: null,
+        titleMatch: "juego b",
+        chatId: null,
+      },
+      {
+        id: "juego_C",
+        messageId: null,
+        publishedAt: null,
+        status: "pending_send",
+        title: null,
+        titleMatch: "juego c",
+        chatId: null,
+      },
+    ]);
+  });
 
-  await t.test(
-    "Caso 4: Debe manejar JSON malformado sin romper",
-    async () => {
-      const mockStoreCorrupted = {
-        get: async () => "esto_no_es_json_valido{{{",
-      };
+  await t.test("Caso 4: Debe manejar JSON malformado sin romper", async () => {
+    const mockStoreCorrupted = {
+      get: async () => "esto_no_es_json_valido{{{",
+    };
 
-      const result = await getPublishedGamesList(mockStoreCorrupted);
-      assert.ok(Array.isArray(result));
-      assert.deepStrictEqual(result, []);
-    }
-  );
+    const result = await getPublishedGamesList(mockStoreCorrupted);
+    assert.ok(Array.isArray(result));
+    assert.deepStrictEqual(result, []);
+  });
 
   await t.test(
-    "Caso 5: Debe normalizar mezcla de strings y objetos sin duplicar",
+    "Caso 5: Debe normalizar mezcla de strings y objetos permitiendo todos los registros (para procesar duplicados)",
     async () => {
       const mixed = [
         "com.legacy.one",
@@ -154,6 +150,7 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
           status: "pending_send",
           title: null,
           titleMatch: "com legacy one",
+          chatId: null,
         },
         {
           id: "com.new.one",
@@ -162,9 +159,19 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
           status: "sent_unverified",
           title: null,
           titleMatch: "com new one",
+          chatId: null,
+        },
+        {
+          id: "com.legacy.one",
+          messageId: 999,
+          publishedAt: null,
+          status: "sent_unverified",
+          title: null,
+          titleMatch: "com legacy one",
+          chatId: null,
         },
       ]);
-    }
+    },
   );
 
   await t.test(
@@ -190,9 +197,10 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
           status: "sent_verified",
           title: "Status Game",
           titleMatch: "status game",
+          chatId: null,
         },
       ]);
-    }
+    },
   );
 
   await t.test(
@@ -216,6 +224,6 @@ test("Suite de Pruebas: Gestor de Memoria (Netlify Blobs)", async (t) => {
       assert.strictEqual(saved.length, 300);
       assert.strictEqual(saved[0].id, "com.game.6");
       assert.strictEqual(saved[299].id, "com.game.305");
-    }
+    },
   );
 });
