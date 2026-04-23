@@ -59,6 +59,7 @@ function normalizeMemoryEntry(entry) {
       status: PUBLICATION_STATUS.PENDING_SEND,
       title: null,
       titleMatch: normalizeTitleForMatch(id),
+      chatId: null
     };
   }
 
@@ -100,6 +101,11 @@ function normalizeMemoryEntry(entry) {
 
   const titleMatch = normalizeTitleForMatch(title || id);
 
+  const chatId = 
+    entry.chatId != null && String(entry.chatId).trim()
+      ? String(entry.chatId).trim()
+      : null;
+
   return {
     id,
     messageId,
@@ -107,6 +113,7 @@ function normalizeMemoryEntry(entry) {
     status,
     title,
     titleMatch,
+    chatId,
   };
 }
 
@@ -115,16 +122,13 @@ function normalizePublishedGames(rawData) {
     return [];
   }
 
-  const seenIds = new Set();
   const normalized = [];
 
   for (const item of rawData) {
     const parsed = normalizeMemoryEntry(item);
-    if (!parsed || seenIds.has(parsed.id)) {
+    if (!parsed) {
       continue;
     }
-
-    seenIds.add(parsed.id);
     normalized.push(parsed);
   }
 
