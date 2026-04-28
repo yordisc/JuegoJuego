@@ -42,17 +42,23 @@ function readGenericNameTokensFromEnv(env = process.env) {
 const GENERIC_NAME_TOKENS = readGenericNameTokensFromEnv();
 
 function hasEnoughSpecificityForNameMatch(titleKey) {
-  // 1. Bajamos el requisito de longitud de 5 a 3 caracteres
-  if (!titleKey || titleKey.length < 3) { 
+  // REDUCE la restricción de longitud (de 5 a 3)
+  if (!titleKey || titleKey.length < 3) {
     return false;
   }
 
-  // 2. Eliminamos o comentamos el requisito de tener al menos 2 palabras
-  // const tokens = titleKey.split(" ").filter(Boolean);
-  // if (tokens.length < 2) { return false; }
+  // ELIMINA la restricción de 2 palabras
+  // Al comentar estas líneas, nombres de una sola palabra como "Balatro" 
+  // o "GTA" podrán ser agrupados.
+  /*
+  const tokens = titleKey.split(" ").filter(Boolean);
+  if (tokens.length < 2) {
+    return false;
+  }
+  */
 
-  // 3. Mantenemos el filtro de palabras genéricas pero permitimos que pase 
-  // si el título tiene una longitud razonable aunque sea una sola palabra.
+  // MANTÉN el filtro de tokens genéricos para evitar borrar 
+  // cosas que solo se llamen "App" o "Free".
   const tokens = titleKey.split(" ").filter(Boolean);
   const nonGenericTokens = tokens.filter((token) => !GENERIC_NAME_TOKENS.has(token));
   

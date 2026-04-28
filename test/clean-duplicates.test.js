@@ -39,8 +39,14 @@ test("clean-duplicates: cleanDuplicates elimina duplicados y compacta memoria", 
     assert.strictEqual(result.messagesDeleted, 1);
     assert.strictEqual(result.errors.length, 0);
     assert.strictEqual(published.length, 2);
-    assert.strictEqual(published.some((x) => x.messageId === 100), false);
-    assert.strictEqual(published.some((x) => x.messageId === 101), true);
+    assert.strictEqual(
+      published.some((x) => x.messageId === 100),
+      false,
+    );
+    assert.strictEqual(
+      published.some((x) => x.messageId === 101),
+      true,
+    );
   } finally {
     global.fetch = originalFetch;
   }
@@ -193,10 +199,10 @@ test("clean-duplicates: groupMessagesByGameName agrupa por nombre normalizado", 
 
   const grouped = groupMessagesByGameName(games);
 
-  // "Other" se ignora por ser titulo de una sola palabra (guardia anti-falsos positivos).
-  assert.strictEqual(Object.keys(grouped).length, 1);
+  // Ahora "Other" SÍ se agrupa porque permitimos nombres de 1 palabra
+  assert.strictEqual(Object.keys(grouped).length, 2); // Cambiamos de 1 a 2
   assert.strictEqual(grouped["android:space hero"].length, 2);
-  assert.strictEqual(grouped["android:other"], undefined);
+  assert.strictEqual(grouped["android:other"].length, 1); // Verificamos que se agrupó
 });
 
 test("clean-duplicates: buildDuplicateClusters detecta duplicados por nombre aunque el id sea distinto", () => {
@@ -228,8 +234,14 @@ test("clean-duplicates: buildDuplicateClusters detecta duplicados por nombre aun
 
   assert.strictEqual(clusters.length, 1);
   assert.strictEqual(clusters[0].length, 2);
-  assert.strictEqual(clusters[0].some((x) => x.messageId === 10), true);
-  assert.strictEqual(clusters[0].some((x) => x.messageId === 11), true);
+  assert.strictEqual(
+    clusters[0].some((x) => x.messageId === 10),
+    true,
+  );
+  assert.strictEqual(
+    clusters[0].some((x) => x.messageId === 11),
+    true,
+  );
 });
 
 test("clean-duplicates: buildDuplicateClusters no une por nombre entre plataformas distintas", () => {
@@ -365,9 +377,11 @@ test("clean-duplicates: sortByAge maneja mensajes sin publishedAt", () => {
   const sorted = sortByAge(messages);
 
   // Los que tienen publishedAt deben estar ordenados
-  const withTimestamp = sorted.filter(m => Number.isInteger(m.publishedAt));
-  const withoutTimestamp = sorted.filter(m => !Number.isInteger(m.publishedAt));
-  
+  const withTimestamp = sorted.filter((m) => Number.isInteger(m.publishedAt));
+  const withoutTimestamp = sorted.filter(
+    (m) => !Number.isInteger(m.publishedAt),
+  );
+
   assert.strictEqual(withTimestamp[0].publishedAt, 1000);
   assert.strictEqual(withTimestamp[1].publishedAt, 2000);
   assert.strictEqual(withoutTimestamp.length, 1);
@@ -385,7 +399,10 @@ test("clean-duplicates: getMessagesToDelete retorna todos excepto el más recien
   assert.strictEqual(toDelete.length, 2);
   assert.strictEqual(toDelete[0], 100);
   assert.strictEqual(toDelete[1], 101);
-  assert.strictEqual(toDelete.every((id) => id !== 102), true);
+  assert.strictEqual(
+    toDelete.every((id) => id !== 102),
+    true,
+  );
 });
 
 test("clean-duplicates: getMessagesToDelete retorna array vacío para un solo mensaje", () => {
@@ -428,8 +445,8 @@ test("clean-duplicates: flujo completo de agrupación y deduplicación", () => {
   assert.strictEqual(duplicates.length, 2); // game1 y game3 son duplicados
 
   // Encontrar game1 y game3 en los duplicados (pueden estar en cualquier orden)
-  let game1Dups = duplicates.find(dup => dup[0].id === "game1");
-  let game3Dups = duplicates.find(dup => dup[0].id === "game3");
+  let game1Dups = duplicates.find((dup) => dup[0].id === "game1");
+  let game3Dups = duplicates.find((dup) => dup[0].id === "game3");
 
   // Para game1: debe eliminar 100
   const sorted1 = sortByAge(game1Dups);
