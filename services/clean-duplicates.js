@@ -42,16 +42,20 @@ function readGenericNameTokensFromEnv(env = process.env) {
 const GENERIC_NAME_TOKENS = readGenericNameTokensFromEnv();
 
 function hasEnoughSpecificityForNameMatch(titleKey) {
-  if (!titleKey || titleKey.length < 5) {
+  // 1. Bajamos el requisito de longitud de 5 a 3 caracteres
+  if (!titleKey || titleKey.length < 3) { 
     return false;
   }
 
+  // 2. Eliminamos o comentamos el requisito de tener al menos 2 palabras
+  // const tokens = titleKey.split(" ").filter(Boolean);
+  // if (tokens.length < 2) { return false; }
+
+  // 3. Mantenemos el filtro de palabras genéricas pero permitimos que pase 
+  // si el título tiene una longitud razonable aunque sea una sola palabra.
   const tokens = titleKey.split(" ").filter(Boolean);
-  if (tokens.length < 2) {
-    return false;
-  }
-
   const nonGenericTokens = tokens.filter((token) => !GENERIC_NAME_TOKENS.has(token));
+  
   return nonGenericTokens.length >= 1;
 }
 

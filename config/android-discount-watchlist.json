@@ -3,11 +3,8 @@
     "Balatro",
     {
       "name": "Minecraft",
-      "aliases": [
-        "Minecraft PE",
-        "Minecraft Pocket Edition"
-      ],
-      "match": "word"
+      "aliases": ["Minecraft PE", "Minecraft Pocket Edition"],
+      "match": "includes"
     },
     "Terraria",
     {
@@ -16,60 +13,90 @@
     },
     {
       "name": "Stardew Valley",
-      "aliases": [
-        "Stardew alley"
-      ],
+      "aliases": ["Stardew alley"],
       "match": "includes"
     },
     {
       "name": "Total War",
-      "match": "word"
+      "match": "includes"
     },
     {
       "name": "Grand Theft Auto",
-      "aliases": [
-        "GTA"
-      ],
-      "match": "word"
+      "aliases": ["GTA"],
+      "match": "includes"
     },
     "Real Combat Simulator",
     "Mini Metro",
     "Slay the Spire",
     {
       "name": "FINAL FANTASY",
-      "aliases": [
-        "Final Fantasy"
-      ],
-      "match": "word"
+      "aliases": ["Final Fantasy"],
+      "match": "includes"
     },
     {
       "name": "Dragon Quest",
-      "match": "word"
+      "match": "includes"
     },
     {
       "name": "Papers, Please",
-      "aliases": [
-        "Papers Please"
-      ],
+      "aliases": ["Papers Please"],
       "match": "includes"
     },
     {
       "name": "Five Nights at Freddy's",
-      "aliases": [
-        "FNAF"
-      ],
-      "match": "word"
+      "aliases": ["FNAF"],
+      "match": "includes"
     },
     {
       "name": "Monument Valley",
-      "match": "word"
+      "match": "includes"
     },
     {
       "name": "Need For Speed",
-      "aliases": [
-        "NFS"
-      ],
-      "match": "word"
+      "aliases": ["NFS"],
+      "match": "includes"
+    },
+    {
+      "name": "The Room",
+      "match": "includes"
+    },
+    {
+      "name": "Graveyard Keeper",
+      "match": "includes"
+    },
+    {
+      "name": "Cult of the Lamb",
+      "match": "includes"
+    },
+    {
+      "name": "Loop Hero",
+      "match": "includes"
+    },
+    {
+      "name": "Dead Cells",
+      "match": "includes"
+    },
+    {
+      "name": "Star Wars: KOTOR",
+      "aliases": ["KOTOR", "Knights of the Old Republic"],
+      "match": "includes"
+    },
+    {
+      "name": "Plague Inc",
+      "match": "includes"
+    },
+    {
+      "name": "Rebel Inc",
+      "match": "includes"
+    },
+    {
+      "name": "Chrono Trigger",
+      "match": "includes"
+    },
+    {
+      "name": "Castlevania: Symphony of the Night",
+      "aliases": ["Castlevania: SotN", "Symphony of the Night"],
+      "match": "includes"
     }
   ]
 }

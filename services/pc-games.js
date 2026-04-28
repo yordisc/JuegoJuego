@@ -199,19 +199,26 @@ function normalizeTrackedMap(trackedSent = []) {
 }
 
 function buildPcMessage(item) {
-  const title = escapeTelegramMarkdown(item.title || item.id || "PC Game");
-  const platforms = escapeTelegramMarkdown(item.platforms || "PC");
+
+  const titleRaw = item.title || item.id || "PC Game";
+  const titleClean = titleRaw.replace(/\s*\([^)]*\)/g, "").trim();
+  
+  const platformsRaw = item.platforms || "PC";
+  const platformsClean = platformsRaw.replace(/\//g, "").toUpperCase();
+
+  const title = escapeTelegramMarkdown(titleClean);
+  const platforms = escapeTelegramMarkdown(platformsClean);
   const worth = escapeTelegramMarkdown(item.worth || "N/A");
   const description = escapeTelegramMarkdown((item.description || "").slice(0, 100));
   const url = item.openGiveawayUrl || item.open_giveaway_url || "";
 
   return (
-    `🎮 **FREE PC GAME!** 🎮\n\n` +
-    `⭐ *Title:* ${title}\n` +
-    `💻 *Platform:* ${platforms}\n` +
-    `💰 *Value:* ${worth}\n` +
-    `📝 *Description:* ${description}${description ? "..." : "N/A"}\n\n` +
-    `🔗 [Get it here](${url || "https://www.gamerpower.com/"})`
+    `🎮 **¡JUEGO GRATIS PARA PC!** 🎮\n\n` +
+    `⭐ *Título:* ${title}\n` +
+    `💻 *Plataforma:* ${platforms}\n` +
+    `💰 *Valor:* ${worth}\n` +
+    `📝 *Descripción:* ${description}${description ? "..." : "N/A"}\n\n` +
+    `🔗 [Obtener aquí](${url || "https://www.gamerpower.com/"})`
   );
 }
 
