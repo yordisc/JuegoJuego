@@ -1168,4 +1168,5 @@ module.exports = {
   findAndroidWatchlistMatch,
   normalizeWatchlistEntries,
   parseWatchlistNames,
+  resolveAndroidWatchlist,
 };

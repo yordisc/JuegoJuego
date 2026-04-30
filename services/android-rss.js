@@ -13,7 +13,7 @@ function createRssParserInstance() {
     Parser = require("rss-parser");
   } catch (error) {
     const wrapped = new Error(
-      "No se encontro 'rss-parser'. Instala dependencias con npm install para usar el productor RSS."
+      "No se encontro 'rss-parser'. Instala dependencias con npm install para usar el productor RSS.",
     );
     wrapped.cause = error;
     throw wrapped;
@@ -25,12 +25,12 @@ function createRssParserInstance() {
       "User-Agent":
         process.env.ANDROID_RSS_USER_AGENT ||
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-      "Accept": "application/rss+xml, application/xml, application/atom+xml, */*",
+      Accept: "application/rss+xml, application/xml, application/atom+xml, */*",
       "Accept-Encoding": "gzip, deflate",
       "Accept-Language": "en-US,en;q=0.9",
       "Cache-Control": "no-cache",
-      "Pragma": "no-cache",
-      "DNT": "1",
+      Pragma: "no-cache",
+      DNT: "1",
     },
   });
 }
@@ -90,22 +90,26 @@ function normalizeQueueEntry(entry) {
     };
   }
 
-  const title = typeof entry.title === "string" && entry.title.trim()
-    ? entry.title.trim()
-    : normalized.id;
+  const title =
+    typeof entry.title === "string" && entry.title.trim()
+      ? entry.title.trim()
+      : normalized.id;
 
-  const icon = typeof entry.icon === "string" && entry.icon.trim()
-    ? entry.icon.trim()
-    : null;
+  const icon =
+    typeof entry.icon === "string" && entry.icon.trim()
+      ? entry.icon.trim()
+      : null;
 
-  const url = typeof entry.url === "string" && entry.url.trim()
-    ? entry.url.trim()
-    : `https://play.google.com/store/apps/details?id=${normalized.id}`;
+  const url =
+    typeof entry.url === "string" && entry.url.trim()
+      ? entry.url.trim()
+      : `https://play.google.com/store/apps/details?id=${normalized.id}`;
 
   const score = Number.isFinite(entry.score) ? entry.score : null;
-  const source = typeof entry.source === "string" && entry.source.trim()
-    ? entry.source.trim()
-    : null;
+  const source =
+    typeof entry.source === "string" && entry.source.trim()
+      ? entry.source.trim()
+      : null;
 
   const rawDiscoveredAt = entry.discoveredAt;
   const discoveredAt = Number.isInteger(rawDiscoveredAt)
@@ -156,7 +160,9 @@ async function readJsonArray(store, key) {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
-    console.warn(`[producer-android-rss] JSON invalido en ${key}, se reinicia a []`);
+    console.warn(
+      `[producer-android-rss] JSON invalido en ${key}, se reinicia a []`,
+    );
     return [];
   }
 }
@@ -166,7 +172,11 @@ async function writeJsonArray(store, key, value) {
 }
 
 function isValidAppId(value) {
-  return typeof value === "string" && /^[a-zA-Z0-9._$]+$/.test(value) && value.includes(".");
+  return (
+    typeof value === "string" &&
+    /^[a-zA-Z0-9._$]+$/.test(value) &&
+    value.includes(".")
+  );
 }
 
 function extractIdsFromPlayStoreUrl(urlValue) {
@@ -189,12 +199,15 @@ function extractIdsFromPlayStoreUrl(urlValue) {
     }
   }
 
-  const urlRegex = /(?:https?:\/\/)?play\.google\.com\/store\/apps\/details\?[^\s"'<>)]*/gi;
+  const urlRegex =
+    /(?:https?:\/\/)?play\.google\.com\/store\/apps\/details\?[^\s"'<>)]*/gi;
 
   for (const text of textVariants) {
     let match;
     while ((match = urlRegex.exec(text)) !== null) {
-      const rawUrl = match[0].startsWith("http") ? match[0] : `https://${match[0]}`;
+      const rawUrl = match[0].startsWith("http")
+        ? match[0]
+        : `https://${match[0]}`;
 
       try {
         const parsed = new URL(rawUrl);
@@ -253,9 +266,8 @@ function buildQueueItem(item, appId, discoveredAt, details = null) {
       ? details.url.trim()
       : `https://play.google.com/store/apps/details?id=${appId}`;
 
-  const score = details && Number.isFinite(details.score)
-    ? details.score
-    : null;
+  const score =
+    details && Number.isFinite(details.score) ? details.score : null;
 
   return {
     id: appId,
@@ -357,7 +369,7 @@ async function getGooglePlayClient() {
       .catch((error) => {
         gplayModulePromise = null;
         const wrapped = new Error(
-          "No se encontro 'google-play-scraper'. Instala dependencias con npm install para validar juegos gratis del RSS."
+          "No se encontro 'google-play-scraper'. Instala dependencias con npm install para validar juegos gratis del RSS.",
         );
         wrapped.cause = error;
         throw wrapped;
@@ -385,21 +397,26 @@ async function resolveDetailsFetcher(options = {}) {
   };
 }
 
-function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], options = {}) {
+function inferExpiredAndroidFromFeed(
+  publishedGames = [],
+  feedActiveIds = [],
+  options = {},
+) {
   const minActiveIds = readPositiveInt(
     options.minActiveIds,
-    readPositiveInt(process.env.ANDROID_RSS_MIN_ACTIVE_IDS, 10)
+    readPositiveInt(process.env.ANDROID_RSS_MIN_ACTIVE_IDS, 10),
   );
   const graceHours = readPositiveInt(
     options.graceHours,
-    readPositiveInt(process.env.ANDROID_RSS_EXPIRATION_GRACE_HOURS, 24)
+    readPositiveInt(process.env.ANDROID_RSS_EXPIRATION_GRACE_HOURS, 24),
   );
-  const source = typeof options.source === "string" && options.source.trim()
-    ? options.source.trim()
-    : "rss";
+  const source =
+    typeof options.source === "string" && options.source.trim()
+      ? options.source.trim()
+      : "rss";
   const maxExpireRatio = readRatio(
     options.maxExpireRatio,
-    readRatio(process.env.ANDROID_RSS_MAX_EXPIRE_RATIO, 0.35)
+    readRatio(process.env.ANDROID_RSS_MAX_EXPIRE_RATIO, 0.35),
   );
   const now = Number.isInteger(options.now) ? options.now : Date.now();
   const graceMs = graceHours * 60 * 60 * 1000;
@@ -419,7 +436,10 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
   }
 
   const active = new Set(feedActiveIds);
-  const normalizedPublished = normalizeList(publishedGames, normalizeMemoryEntry);
+  const normalizedPublished = normalizeList(
+    publishedGames,
+    normalizeMemoryEntry,
+  );
 
   if (active.size < minActiveIds) {
     return resultWithMeta([], { reason: "low_active_ids" });
@@ -427,7 +447,8 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
 
   if (normalizedPublished.length === 0 || maxExpireRatio <= 0) {
     return resultWithMeta([], {
-      reason: normalizedPublished.length === 0 ? "empty_published" : "ratio_disabled",
+      reason:
+        normalizedPublished.length === 0 ? "empty_published" : "ratio_disabled",
     });
   }
 
@@ -473,9 +494,10 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
         ? Number(rawMessageId)
         : null;
 
-    const source = typeof entry.source === "string" && entry.source.trim()
-      ? entry.source.trim()
-      : null;
+    const source =
+      typeof entry.source === "string" && entry.source.trim()
+        ? entry.source.trim()
+        : null;
     const normalized = { id, messageId };
     if (source) {
       normalized.source = source;
@@ -485,7 +507,10 @@ function inferExpiredAndroidFromFeed(publishedGames = [], feedActiveIds = [], op
   });
 
   if (maxExpireRatio < 1) {
-    const maxAllowed = Math.max(1, Math.floor(normalizedPublished.length * maxExpireRatio));
+    const maxAllowed = Math.max(
+      1,
+      Math.floor(normalizedPublished.length * maxExpireRatio),
+    );
     if (normalizedExpired.length > maxAllowed) {
       return resultWithMeta([], {
         reason: "blocked_by_max_expire_ratio",
@@ -512,13 +537,14 @@ async function buildAndroidRssQueue(store, options = {}) {
     ? Math.max(1, options.maxItems)
     : 50;
 
-  const feed = options.feed
-    || (await (options.parser || createRssParserInstance()).parseURL(feedUrl));
+  const feed =
+    options.feed ||
+    (await (options.parser || createRssParserInstance()).parseURL(feedUrl));
   const feedItems = Array.isArray(feed && feed.items) ? feed.items : [];
   const detailsFetcher = await resolveDetailsFetcher(options);
   const detailsDelayMs = readPositiveInt(
     options.detailsDelayMs,
-    readPositiveInt(process.env.ANDROID_RSS_DETAILS_DELAY_MS, 250)
+    readPositiveInt(process.env.ANDROID_RSS_DETAILS_DELAY_MS, 250),
   );
 
   const legacyMemory = await readJsonArray(store, KEY_ANDROID_MEMORY);
@@ -526,6 +552,12 @@ async function buildAndroidRssQueue(store, options = {}) {
 
   const existingQueueRaw = await readJsonArray(store, KEY_ANDROID_QUEUE);
   const existingQueue = normalizeList(existingQueueRaw, normalizeQueueEntry);
+
+  const {
+    resolveAndroidWatchlist,
+    findAndroidWatchlistMatch,
+  } = require("./android-deals");
+  const watchlist = await resolveAndroidWatchlist(options);
 
   const knownIds = new Set([
     ...publishedGames.map((entry) => entry.id),
@@ -539,7 +571,8 @@ async function buildAndroidRssQueue(store, options = {}) {
   let detailsRequests = 0;
   let detailsFailures = 0;
 
-  async function getCandidateData(appId) {
+  // Modificamos para recibir 'item'
+  async function getCandidateData(appId, item) {
     if (detailsCache.has(appId)) {
       return detailsCache.get(appId);
     }
@@ -547,9 +580,20 @@ async function buildAndroidRssQueue(store, options = {}) {
     detailsRequests += 1;
     try {
       const details = await detailsFetcher(appId);
+
+      // Armamos un objeto falso usando el título que viene de Reddit
+      const redditDummyItem = { id: appId, title: item.title };
+
+      // Evaluamos si el título de Reddit hace match con la watchlist
+      const isWatchlistMatch = findAndroidWatchlistMatch(
+        redditDummyItem,
+        watchlist,
+      );
+
       const candidateData = {
         details,
-        qualifies: isQualifiedFreeGame(details),
+        // Si hace match en la watchlist OR si es un juego 100% gratis normal
+        qualifies: isWatchlistMatch || isQualifiedFreeGame(details),
       };
 
       detailsCache.set(appId, candidateData);
@@ -562,7 +606,7 @@ async function buildAndroidRssQueue(store, options = {}) {
     } catch (err) {
       detailsFailures += 1;
       console.warn(
-        `[producer-android-rss] No se pudo validar ${appId} en Play Store: ${err.message}`
+        `[producer-android-rss] No se pudo validar ${appId} en Play Store: ${err.message}`,
       );
 
       const candidateData = {
@@ -577,18 +621,25 @@ async function buildAndroidRssQueue(store, options = {}) {
   for (const item of feedItems) {
     const appIds = collectItemAppIds(item);
     for (const appId of appIds) {
-      const candidate = await getCandidateData(appId);
+      // 1. Evaluamos el juego PRIMERO (Tu nueva lógica con Pase VIP)
+      const candidate = await getCandidateData(appId, item);
       if (!candidate.qualifies) {
-        continue;
+        continue; // Si no califica, pasamos al siguiente
       }
 
+      // 2. Como sí calificó, lo marcamos como una oferta activa.
+      // IMPORTANTE: Al ser un Set(), usamos .add()
       feedActiveIds.add(appId);
 
+      // 3. Filtro antispam: Si ya lo habíamos publicado antes, lo ignoramos
       if (knownIds.has(appId)) {
         continue;
       }
 
-      newItems.push(buildQueueItem(item, appId, discoveredAt, candidate.details));
+      // 4. Si es totalmente nuevo, lo agregamos a la cola de publicación
+      newItems.push(
+        buildQueueItem(item, appId, discoveredAt, candidate.details),
+      );
       knownIds.add(appId);
 
       if (newItems.length >= maxItems) {
@@ -601,13 +652,22 @@ async function buildAndroidRssQueue(store, options = {}) {
     }
   }
 
-  const nextQueue = normalizeList([...existingQueue, ...newItems], normalizeQueueEntry);
+  const nextQueue = normalizeList(
+    [...existingQueue, ...newItems],
+    normalizeQueueEntry,
+  );
   await writeJsonArray(store, KEY_ANDROID_QUEUE, nextQueue);
 
   console.log(`[producer-android-rss] feed items leidos: ${feedItems.length}`);
-  console.log(`[producer-android-rss] candidatos con detalles consultados: ${detailsRequests}`);
-  console.log(`[producer-android-rss] validaciones fallidas: ${detailsFailures}`);
-  console.log(`[producer-android-rss] juegos gratis validados: ${feedActiveIds.size}`);
+  console.log(
+    `[producer-android-rss] candidatos con detalles consultados: ${detailsRequests}`,
+  );
+  console.log(
+    `[producer-android-rss] validaciones fallidas: ${detailsFailures}`,
+  );
+  console.log(
+    `[producer-android-rss] juegos gratis validados: ${feedActiveIds.size}`,
+  );
   console.log(`[producer-android-rss] queue previo: ${existingQueue.length}`);
   console.log(`[producer-android-rss] nuevos agregados: ${newItems.length}`);
   console.log(`[producer-android-rss] queue final: ${nextQueue.length}`);
@@ -620,7 +680,7 @@ async function buildAndroidRssQueue(store, options = {}) {
       delete_errors: 0,
       details_requests: detailsRequests,
       details_failures: detailsFailures,
-    })}`
+    })}`,
   );
 
   return {
