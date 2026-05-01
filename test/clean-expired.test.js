@@ -107,7 +107,7 @@ test("Suite Clean Expired Function", async (t) => {
     memoryByPlatform.pc = [];
   });
 
-  await t.test("Modo seguro: si falla GamerPower, limpia Android y omite limpieza PC", async () => {
+  await t.test("Modo robusto: si falla GamerPower, procesa pc_expired explícito sin inferir nuevos", async () => {
     memoryByPlatform.android = [{ id: "com.android.old", messageId: 11 }];
     memoryByPlatform.pc = [{ id: "100", messageId: 22 }];
 
@@ -137,7 +137,7 @@ test("Suite Clean Expired Function", async (t) => {
     });
     assert.deepStrictEqual(calls.checkPCGames[0].options, {
       processQueue: false,
-      processExpired: false,
+      processExpired: true,
     });
 
     const androidExpiredWrite = setCalls.find((row) => row.key === "android_expired");
@@ -147,7 +147,9 @@ test("Suite Clean Expired Function", async (t) => {
     assert.deepStrictEqual(androidExpiredWrite.value, [
       { id: "com.android.old", messageId: 11 },
     ]);
-    assert.strictEqual(pcExpiredWrite, undefined);
+    // Ahora SÍ se guarda pc_expired porque procesamos expirados explícitos
+    // aunque no podamos inferir nuevos si GamerPower falla
+    assert.ok(pcExpiredWrite);
   });
 
   await t.test("Modo normal: limpia Android y PC con reconciliacion segura", async () => {

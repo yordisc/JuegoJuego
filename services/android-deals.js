@@ -734,7 +734,41 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
       }
 
       try {
-        const sendResult = await sendAndroidPublication(item);
+        // Verificar si hay match con watchlist ANTES de enviar
+        const watchlistMatch = findAndroidWatchlistMatch(item, watchlist);
+        let shouldSendWatchlistOnly = false;
+        
+        if (watchlistMatch) {
+          if (!shouldSendWatchlistAlert(item, watchlistAlertHistory, watchlistCooldownMs, now)) {
+            console.log(`[android-consumer] Alerta watchlist omitida por cooldown para ${id}`);
+            // No hacer continue aquí - seguir publicando el mensaje regular
+          } else {
+            // Si hay match válido Y no está en cooldown, solo enviaremos el mensaje de watchlist
+            shouldSendWatchlistOnly = true;
+          }
+        }
+
+        // Determinar qué mensaje enviar
+        let sendResult;
+        let messageKind;
+        
+        if (shouldSendWatchlistOnly) {
+          // Enviar solo el mensaje de watchlist
+          const alertResponse = await sendAndroidWatchlistAlert(item, watchlistMatch);
+          sendResult = {
+            response: alertResponse,
+            publication: {
+              messageKind: "text",
+              messageText: buildAndroidWatchlistAlertMessage(item, watchlistMatch),
+            },
+          };
+          messageKind = "watchlist_alert";
+        } else {
+          // Enviar el mensaje regular
+          sendResult = await sendAndroidPublication(item);
+          messageKind = sendResult.publication.messageKind;
+        }
+
         const telegramResponse = sendResult.response;
 
         if (!telegramResponse.ok) {
@@ -783,7 +817,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
             messageId,
             platform: "android",
             chatId: process.env.CHANNEL_ID || null,
-            messageKind: sendResult.publication.messageKind,
+            messageKind,
             messageText: sendResult.publication.messageText,
             publishedAt,
             title:
@@ -795,37 +829,18 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
         publishedIds.add(id);
         publishedCount += 1;
 
-        const watchlistMatch = findAndroidWatchlistMatch(item, watchlist);
-        if (watchlistMatch) {
-          if (!shouldSendWatchlistAlert(item, watchlistAlertHistory, watchlistCooldownMs, now)) {
-            console.log(`[android-consumer] Alerta watchlist omitida por cooldown para ${id}`);
-            continue;
-          }
-
-          try {
-            const alertResponse = await sendAndroidWatchlistAlert(item, watchlistMatch);
-            if (!alertResponse.ok) {
-              const details = await readTelegramError(alertResponse);
-              console.warn(
-                `[android-consumer] No se pudo enviar alerta watchlist para ${id}: ${details.text}`
-              );
-            } else {
-              watchlistAlertsSent += 1;
-              watchlistAlertHistory = upsertWatchlistAlertHistory(
-                watchlistAlertHistory,
-                item,
-                watchlistMatch,
-                now
-              );
-              console.log(
-                `[android-consumer] Alerta watchlist enviada para ${id} (${watchlistMatch.name})`
-              );
-            }
-          } catch (watchlistErr) {
-            console.warn(
-              `[android-consumer] Error enviando alerta watchlist para ${id}: ${watchlistErr.message}`
-            );
-          }
+        // Solo si se envió el mensaje de watchlist, actualizar el historial
+        if (shouldSendWatchlistOnly && watchlistMatch) {
+          watchlistAlertsSent += 1;
+          watchlistAlertHistory = upsertWatchlistAlertHistory(
+            watchlistAlertHistory,
+            item,
+            watchlistMatch,
+            now
+          );
+          console.log(
+            `[android-consumer] Alerta watchlist enviada para ${id} (${watchlistMatch.name})`
+          );
         }
       } catch (err) {
         console.error("[android-consumer] Error de red publicando:", err.message);

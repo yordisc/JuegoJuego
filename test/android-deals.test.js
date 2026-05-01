@@ -429,9 +429,54 @@ test("Suite Android Consumer", async (t) => {
 
     assert.strictEqual(result.publishedCount, 1);
     assert.strictEqual(result.watchlistAlertsSent, 1);
-    assert.strictEqual(sendMessageCalls.length, 2);
+    // Solo envía 1 mensaje (el de watchlist reemplaza al regular)
+    assert.strictEqual(sendMessageCalls.length, 1);
     assert.ok(
       sendMessageCalls.some((call) => String(call.text || "").includes("WATCHLIST MATCH"))
+    );
+  });
+
+  await t.test("Publica con 1 solo mensaje cuando no hay watchlist", async () => {
+    const sendMessageCalls = [];
+    global.fetch = async (url, opts = {}) => {
+      if (url.includes("sendMessage")) {
+        sendMessageCalls.push(JSON.parse(opts.body || "{}"));
+      }
+
+      if (url.includes("sendPhoto") || url.includes("sendMessage")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, result: { message_id: 333 } }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      };
+    };
+
+    const store = createStore({
+      android_queue: [
+        {
+          id: "com.example.normal",
+          title: "Normal Game",
+          url: "https://play.google.com/store/apps/details?id=com.example.normal",
+        },
+      ],
+      android_expired: [],
+    });
+
+    const result = await checkAndroidDeals(store, [], {
+      watchlistNames: ["Balatro"],  // No coincide con "Normal Game"
+    });
+
+    assert.strictEqual(result.publishedCount, 1);
+    assert.strictEqual(result.watchlistAlertsSent, 0);
+    // Sin watchlist, solo 1 mensaje (el regular)
+    assert.strictEqual(sendMessageCalls.length, 1);
+    assert.ok(
+      !String(sendMessageCalls[0].text || "").includes("WATCHLIST MATCH")
     );
   });
 

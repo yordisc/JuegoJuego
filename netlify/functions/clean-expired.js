@@ -256,10 +256,13 @@ exports.handler = async () => {
             (entry) => !activePcIds.has(entry.id)
           );
         } catch (err) {
-          pcCleanupEnabled = false;
+          // Si GamerPower API falla, permitir limpieza de los juegos explícitamente marcados como expirados
+          // Esto es más seguro que desactivar la limpieza completamente
           console.warn(
-            `[clean-expired] WARN no se pudo validar activos de PC (${err.message}). Se omite limpieza PC para evitar falsos positivos.`
+            `[clean-expired] WARN no se pudo validar activos de PC (${err.message}). Se procesa solo pc_expired explícito.`
           );
+          // Mantener los expirados que estaban ya en pc_expired, sin inferir nuevos
+          mergedPcExpired = pcExpired;
         }
 
         await store.setJSON(KEY_ANDROID_EXPIRED, safeAndroidExpired);

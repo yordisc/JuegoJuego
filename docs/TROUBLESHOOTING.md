@@ -356,6 +356,30 @@ npm run produce:android  # 5-8 seg
 
 ## Monitoreo Continuo
 
+### Historial de Fallos Identificados y Resueltos
+
+#### Mayo 1, 2026: Watchlist Cooldown Bug + Clean Expired Test Fix
+
+**Fallo #1: Watchlist Cooldown**
+
+- **Síntoma**: `publishedCount = 0` cuando había watchlist match en cooldown
+- **Causa**: `continue` saltaba la publicación completamente
+- **Fix**: Eliminar `continue`, mantener la publicación del mensaje regular
+- **Archivo**: [services/android-deals.js](../docs/ANALISIS_FALLOS_Y_FIXES_20260501.md)
+
+**Fallo #2: Clean Expired Test**
+
+- **Síntoma**: Test fallaba esperando `processExpired: false`
+- **Causa**: Test validaba comportamiento viejo incorrecto (no limpiar si GamerPower falla)
+- **Fix**: Actualizar test para validar limpieza robusta de pc_expired explícitos
+- **Archivo**: [test/clean-expired.test.js](../test/clean-expired.test.js)
+
+**Resultado**: 4/4 fallos resueltos → 133 tests pasando ✅
+
+Ver análisis completo en [ANALISIS_FALLOS_Y_FIXES_20260501.md](../docs/ANALISIS_FALLOS_Y_FIXES_20260501.md)
+
+---
+
 ### Health Check
 
 ```bash
