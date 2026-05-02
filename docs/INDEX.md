@@ -27,9 +27,6 @@ Bienvenido. Esta carpeta contiene toda la documentación del proyecto. Usa este 
 
 → Lee [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
-### 📋 Para Mantenimiento / Cambios Recientes
-
-→ Lee [CAMBIOS_REALIZADOS.md](CAMBIOS_REALIZADOS.md)
 
 ---
 
@@ -54,7 +51,6 @@ Bienvenido. Esta carpeta contiene toda la documentación del proyecto. Usa este 
 
 | Archivo                                        | Descripción                                |
 | ---------------------------------------------- | ------------------------------------------ |
-| [CAMBIOS_REALIZADOS.md](CAMBIOS_REALIZADOS.md) | Cambios recientes, tareas de mantenimiento |
 
 ---
 

@@ -61,7 +61,7 @@ exports.handler = async (event) => {
       {
         lockKey: "android_state_lock",
         owner: "manual-clean-memory",
-        ttlMs: 120 * 1000, // 2 minutos para operación de limpieza
+        ttlMs: parsePositiveInt(process.env.ANDROID_STATE_LOCK_TTL_MS, 9 * 1000),
       },
       () => clearAllMemory(store)
     );

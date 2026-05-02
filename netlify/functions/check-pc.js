@@ -78,7 +78,7 @@ exports.handler = async (event, context) => {
       {
         lockKey: process.env.PC_STATE_LOCK_KEY || "pc_state_lock",
         owner: "consumer-pc",
-        ttlMs: parsePositiveInt(process.env.PC_STATE_LOCK_TTL_MS, 90 * 1000),
+        ttlMs: parsePositiveInt(process.env.PC_STATE_LOCK_TTL_MS, 9 * 1000),
         retries: parsePositiveInt(process.env.PC_STATE_LOCK_RETRIES, 20),
         retryDelayMs: parsePositiveInt(process.env.PC_STATE_LOCK_RETRY_DELAY_MS, 1000),
       },

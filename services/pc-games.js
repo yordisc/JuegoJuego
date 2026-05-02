@@ -475,10 +475,10 @@ async function checkPCGames(store, publishedGames = [], options = {}) {
             }
           } else {
             removedTrackedMessageIds.add(messageId);
-          }
 
-          if (expiredDeleteDelayMs > 0) {
-            await sleep(expiredDeleteDelayMs);
+            if (expiredDeleteDelayMs > 0) {
+              await sleep(expiredDeleteDelayMs);
+            }
           }
         } catch (err) {
           console.error("[pc-consumer] Error de red eliminando expirado:", err.message);

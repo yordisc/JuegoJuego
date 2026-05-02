@@ -838,6 +838,14 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
             watchlistMatch,
             now
           );
+          // Persistir inmediatamente el historial para evitar pérdida en timeout
+          const prunedHistory = pruneWatchlistAlertHistory(
+            watchlistAlertHistory,
+            now,
+            watchlistRetentionMs
+          );
+          await writeQueue(store, KEY_ANDROID_WATCHLIST_ALERTS, prunedHistory);
+          watchlistAlertHistory = prunedHistory;
           console.log(
             `[android-consumer] Alerta watchlist enviada para ${id} (${watchlistMatch.name})`
           );
@@ -851,6 +859,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
   }
 
   if (processExpired) {
+    const removedTrackedMessageIds = new Set();
     for (let index = 0; index < expiredQueue.length; index += 1) {
       const item = expiredQueue[index];
       const id = getPublishedGameId(item);
@@ -885,6 +894,7 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
               console.info(
                 `[android-consumer] Mensaje expirado no encontrado (${messageId}), se marca como resuelto.`
               );
+              removedTrackedMessageIds.add(messageId);
             } else {
               if (telegramResponse.status === 429) {
                 const retryNote =
@@ -904,6 +914,8 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
               retryExpiredQueue.push(item);
               continue;
             }
+          } else {
+            removedTrackedMessageIds.add(messageId);
           }
         } catch (err) {
           console.error("[android-consumer] Error de red eliminando expirado:", err.message);
@@ -919,6 +931,15 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
         publishedIds.delete(id);
         expiredCount += 1;
       }
+    }
+
+    if (removedTrackedMessageIds.size > 0) {
+      const latestTracked = await readTrackedMessages(store);
+      const nextTracked = latestTracked.filter((entry) => {
+        const trackedMessageId = getPublishedMessageId(entry);
+        return !Number.isInteger(trackedMessageId) || !removedTrackedMessageIds.has(trackedMessageId);
+      });
+      await saveTrackedMessages(store, nextTracked);
     }
   }
 
@@ -936,6 +957,8 @@ async function checkAndroidDeals(store, publishedGames = [], options = {}) {
       now,
       watchlistRetentionMs
     );
+    // Escritura defensiva: el historial ya fue persistido inmediatamente tras cada alerta
+    // Esta persist es fallback en caso de que la función termine sin completar todas las alertas
     await writeQueue(store, KEY_ANDROID_WATCHLIST_ALERTS, nextWatchlistHistory);
   }
 
